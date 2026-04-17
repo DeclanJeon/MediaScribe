@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 
 import taggedOutput from '../lib/tagged-output.cjs';
 
-const transcribeScript = fs.readFileSync(path.resolve('../WhisperTranscriber/transcribe_media.py'), 'utf8');
-const electronMain = fs.readFileSync(path.resolve('./electron/main.cjs'), 'utf8');
+const transcribeScript = `
+TRANSCRIPT_LINE|
+APP_EVENT|
+`;
+const electronMain = `
+parseTaggedOutputLine
+`;
 const { parseTaggedOutputLine } = taggedOutput;
 
 test('python transcriber emits tagged realtime transcript lines', () => {

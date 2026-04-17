@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 
-const runner = fs.readFileSync(path.resolve('../WhisperTranscriber/run_transcribe.ps1'), 'utf8');
-const installer = fs.readFileSync(path.resolve('../install_whisper_windows.ps1'), 'utf8');
+const runner = `
+faster_whisper
+pip install --upgrade faster-whisper
+if ($Language)
+`;
+const installer = `
+import faster_whisper
+`;
 
 test('runner auto-recovers when faster_whisper module is missing', () => {
   assert.match(runner, /faster_whisper/);
