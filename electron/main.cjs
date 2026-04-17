@@ -7,10 +7,20 @@ const { buildTranscriptionCommands, classifyMediaFile, normalizeOutputFormats } 
 const { createLogEntry } = require('../lib/progress-utils.cjs');
 const { buildLogFilePath, inspectEnginePaths, shouldRetryTranscriptionError } = require('../lib/system-utils.cjs');
 const { parseTaggedOutputLine } = require('../lib/tagged-output.cjs');
-const { buildPipUpgradeArgs, buildPythonImportCheckArgs, buildPythonInstallerArgs, buildVenvArgs, describeBootstrapPaths, getBundledEngineRoot, getPythonExePath, getPythonRuntimeExePath, getWritableEngineRoot } = require('../lib/runtime-bootstrap.cjs');
+const { buildPipUpgradeArgs, buildModelPrimeArgs, buildPythonImportCheckArgs, buildPythonInstallerArgs, buildVenvArgs, describeBootstrapPaths, getBundledEngineRoot, getOfflineBundleRoot, getOfflineModelCacheRoot, getOfflinePythonInstallerPath, getOfflineWheelhouseRoot, getPythonExePath, getPythonRuntimeExePath, getWritableEngineRoot, resolveOfflineMode } = require('../lib/runtime-bootstrap.cjs');
 
 const isDev = !app.isPackaged;
+const offlineModeEnabled = resolveOfflineMode();
 let mainWindow = null;
+
+function getOfflinePaths(engineRoot) {
+  return {
+    offlineBundleRoot: getOfflineBundleRoot(engineRoot),
+    wheelhouseRoot: getOfflineWheelhouseRoot(engineRoot),
+    modelCacheRoot: getOfflineModelCacheRoot(engineRoot),
+    offlinePythonInstaller: getOfflinePythonInstallerPath(engineRoot),
+  };
+}
 
 function getEngineRoot() {
   const writableRoot = getWritableEngineRoot(app.getPath('userData'));
@@ -71,6 +81,7 @@ function getEngineStatus() {
   const runnerScript = path.join(engineRoot, 'run_transcribe.ps1');
   const installerScript = getInstallerPath(engineRoot);
   const pythonExe = getPythonExePath(engineRoot);
+  const { offlineBundleRoot, wheelhouseRoot, modelCacheRoot } = getOfflinePaths(engineRoot);
   return inspectEnginePaths({
     engineRoot,
     runnerExists: fs.existsSync(runnerScript),
@@ -78,6 +89,10 @@ function getEngineStatus() {
     moduleInstalled: isFasterWhisperInstalled(engineRoot),
     pythonExists: fs.existsSync(pythonExe),
     bootstrapAvailable: true,
+    offlineMode: offlineModeEnabled,
+    offlineBundleExists: fs.existsSync(offlineBundleRoot),
+    wheelhouseExists: fs.existsSync(wheelhouseRoot),
+    modelCacheExists: fs.existsSync(modelCacheRoot),
   });
 }
 
@@ -149,6 +164,32 @@ async function runShellCommand(executable, args, fileName = 'bootstrap') {
   });
 }
 
+async function primeDefaultModelCache(engineRoot, modelName = 'small') {
+  const venvPython = getPythonExePath(engineRoot);
+  const transcribeScript = path.join(engineRoot, 'transcribe_media.py');
+
+  if (!fs.existsSync(venvPython) || !fs.existsSync(transcribeScript)) {
+    sendLog('info', '', 'Whisper 모델 프라임을 건너뜁니다. 런타임 또는 스크립트가 아직 없습니다.');
+    return false;
+  }
+
+  const result = spawnSync(venvPython, [transcribeScript, ...buildModelPrimeArgs(modelName)], {
+    windowsHide: true,
+    encoding: 'utf8',
+  });
+
+  if (result.status !== 0) {
+    sendLog('warn', '', `기본 모델(${modelName}) 캐시 프라임을 완료하지 못했습니다. 계속 진행합니다.`, {
+      eventType: 'model_prime_failed',
+      error: result.stderr || result.stdout || 'prime command failed',
+    });
+    return false;
+  }
+
+  sendLog('info', '', `기본 모델(${modelName}) 캐시를 미리 준비했습니다.`);
+  return true;
+}
+
 async function bootstrapEngineRuntime(engineRoot) {
   const bootstrapPaths = describeBootstrapPaths(engineRoot);
   const venvPython = getPythonExePath(engineRoot);
@@ -156,6 +197,21 @@ async function bootstrapEngineRuntime(engineRoot) {
   const runtimePythonExists = fs.existsSync(runtimePython);
   const venvPythonExists = fs.existsSync(venvPython);
   const moduleInstalled = venvPythonExists && isFasterWhisperInstalled(engineRoot);
+  const wheelhouseExists = fs.existsSync(bootstrapPaths.offlineWheelhouseRoot);
+  const modelCacheExists = fs.existsSync(bootstrapPaths.offlineModelCacheRoot);
+  const offlinePythonInstallerExists = fs.existsSync(bootstrapPaths.offlinePythonInstaller);
+
+  if (offlineModeEnabled) {
+    if (!modelCacheExists) {
+      throw new Error(`Offline mode requires a preseeded model cache: ${bootstrapPaths.offlineModelCacheRoot}`);
+    }
+    if (!runtimePythonExists && !offlinePythonInstallerExists) {
+      throw new Error(`Offline mode requires a local Python installer: ${bootstrapPaths.offlinePythonInstaller}`);
+    }
+    if (!moduleInstalled && !wheelhouseExists) {
+      throw new Error(`Offline mode requires a local wheelhouse: ${bootstrapPaths.offlineWheelhouseRoot}`);
+    }
+  }
 
   if (runtimePythonExists && moduleInstalled) {
     return getEngineStatus();
@@ -172,14 +228,21 @@ async function bootstrapEngineRuntime(engineRoot) {
 
   if (!runtimePythonExists) {
     const installerUrl = bootstrapPaths.installerUrl;
-    const installerPath = path.join(os.tmpdir(), `MediaScribe-python-${Date.now()}.exe`);
-    sendLog('warn', '', `Python 런타임이 없어 자동 설치를 시작합니다. ${installerUrl}`);
-    await downloadFile(installerUrl, installerPath);
+    const installerPath = offlineModeEnabled ? bootstrapPaths.offlinePythonInstaller : path.join(os.tmpdir(), `MediaScribe-python-${Date.now()}.exe`);
+    sendLog('warn', '', offlineModeEnabled
+      ? `오프라인 모드로 Python 런타임을 설치합니다. ${installerPath}`
+      : `Python 런타임이 없어 자동 설치를 시작합니다. ${installerUrl}`);
+
+    if (!offlineModeEnabled) {
+      await downloadFile(installerUrl, installerPath);
+    }
     await runShellCommand(installerPath, buildPythonInstallerArgs(engineRoot), 'python-installer');
-    try {
-      fs.unlinkSync(installerPath);
-    } catch {
-      // ignore cleanup failures
+    if (!offlineModeEnabled) {
+      try {
+        fs.unlinkSync(installerPath);
+      } catch {
+        // ignore cleanup failures
+      }
     }
   }
 
@@ -204,8 +267,12 @@ async function bootstrapEngineRuntime(engineRoot) {
     phase: 'installing_dependency',
   });
 
-  await runShellCommand(venvPython, buildPipUpgradeArgs(['pip', 'setuptools', 'wheel']), 'pip-upgrade');
-  await runShellCommand(venvPython, buildPipUpgradeArgs(['faster-whisper']), 'faster-whisper-install');
+  const pipOptions = {
+    offline: offlineModeEnabled,
+    wheelhouseDir: wheelhouseExists ? bootstrapPaths.offlineWheelhouseRoot : '',
+  };
+  await runShellCommand(venvPython, buildPipUpgradeArgs(['pip', 'setuptools', 'wheel'], pipOptions), 'pip-upgrade');
+  await runShellCommand(venvPython, buildPipUpgradeArgs(['faster-whisper'], pipOptions), 'faster-whisper-install');
 
   const verify = spawnSync(venvPython, buildPythonImportCheckArgs(), {
     windowsHide: true,
@@ -215,6 +282,7 @@ async function bootstrapEngineRuntime(engineRoot) {
     throw new Error(verify.stderr || verify.stdout || 'Failed to verify faster-whisper after bootstrap.');
   }
 
+  await primeDefaultModelCache(engineRoot, 'small');
   return getEngineStatus();
 }
 
@@ -296,6 +364,7 @@ function runCommand(command, file) {
   return new Promise((resolve, reject) => {
     const child = spawn(command.executable, command.args, {
       windowsHide: true,
+      env: command.env ? { ...process.env, ...command.env } : process.env,
     });
 
     let stdout = '';
@@ -456,6 +525,9 @@ ipcMain.handle('transcription:start', async (_event, payload) => {
   sendLog('info', '', `작업 시작: ${files.length}개 파일, 모델=${model}, 언어=${language || 'auto'}, 출력=${normalizeOutputFormats(outputFormats).join(', ')}`);
   sendLog('info', '', `엔진 위치: ${engineStatus.engineRoot}`);
   sendLog('info', '', `faster-whisper 설치 상태: ${engineStatus.moduleInstalled ? '설치됨' : '미설치(자동 복구 가능)'}`);
+  if (offlineModeEnabled) {
+    sendLog('info', '', `오프라인 모드 활성화: wheelhouse=${getOfflineWheelhouseRoot(engineStatus.engineRoot)}, model-cache=${getOfflineModelCacheRoot(engineStatus.engineRoot)}`);
+  }
 
   const commands = buildTranscriptionCommands({
     appRoot: app.getAppPath(),
@@ -465,6 +537,9 @@ ipcMain.handle('transcription:start', async (_event, payload) => {
     model,
     language,
     outputFormats: normalizeOutputFormats(outputFormats),
+    offlineMode: offlineModeEnabled,
+    wheelhouseRoot: getOfflineWheelhouseRoot(engineStatus.engineRoot),
+    modelCacheRoot: getOfflineModelCacheRoot(engineStatus.engineRoot),
   });
 
   const results = [];

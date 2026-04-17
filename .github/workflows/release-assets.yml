@@ -26,6 +26,7 @@ jobs:
               dist/MediaScribe-Portable.exe
               dist/MediaScribe-Setup.exe
               dist/MediaScribe-Setup.exe.blockmap
+              dist/MediaScribe-offline-bundle.zip
           - os: macos-latest
             label: macOS artifacts
             build_command: npm run dist:mac
@@ -77,6 +78,17 @@ jobs:
       - name: Build release assets
         if: ${{ steps.release.outputs.skip_build != 'true' }}
         run: ${{ matrix.build_command }}
+
+      - name: Package offline bundle seed
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $offlineRoot = Join-Path (Get-Location) 'WhisperTranscriber/offline'
+          $output = Join-Path (Get-Location) 'dist/MediaScribe-offline-bundle.zip'
+          if (Test-Path $offlineRoot) {
+            New-Item -ItemType Directory -Path (Split-Path $output) -Force | Out-Null
+            Compress-Archive -Path (Join-Path $offlineRoot '*') -DestinationPath $output -Force
+          }
 
       - name: Upload assets to GitHub Release
         if: ${{ steps.release.outputs.skip_build != 'true' }}

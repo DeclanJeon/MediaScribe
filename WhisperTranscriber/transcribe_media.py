@@ -44,6 +44,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--compute-type", default="")
     parser.add_argument("--beam-size", type=int, default=1)
     parser.add_argument("--no-vad-filter", action="store_true")
+    parser.add_argument(
+        "--prime-model",
+        nargs="?",
+        const="small",
+        default="",
+        help="Warm the faster-whisper cache for the selected model without transcribing files.",
+    )
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
 
@@ -162,6 +169,13 @@ def build_model(model_name: str, device: str, compute_type: str):
     from faster_whisper import WhisperModel
 
     return WhisperModel(model_name, device=device, compute_type=compute_type)
+
+
+def prime_model_cache(model_name: str, device: str, compute_type: str) -> None:
+    selected_compute_type = compute_type or default_compute_type(device)
+    emit_app_event("model_prime_start", model_name=model_name, device=device, compute_type=selected_compute_type)
+    build_model(model_name=model_name, device=device, compute_type=selected_compute_type)
+    emit_app_event("model_prime_complete", model_name=model_name, device=device, compute_type=selected_compute_type)
 
 
 def emit_transcript_line(media_path: Path, segment: dict[str, object]) -> None:
@@ -289,6 +303,19 @@ def main() -> int:
     base_dir = Path(__file__).resolve().parent
     input_dir = Path(args.input_dir) if args.input_dir else base_dir / "input_audio"
     output_dir = Path(args.output_dir) if args.output_dir else base_dir / "output_text"
+
+    if args.prime_model:
+        try:
+            prime_model_cache(args.prime_model, args.device, args.compute_type or None)
+            return 0
+        except Exception as exc:
+            emit_app_event(
+                "model_prime_failed",
+                model_name=args.prime_model,
+                error=str(exc),
+            )
+            print(f"Model cache priming failed for {args.prime_model}: {exc}", file=sys.stderr)
+            return 1
 
     files = collect_media_files(input_file=args.input_file or None, input_dir=input_dir)
     if not files:

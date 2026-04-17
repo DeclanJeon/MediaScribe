@@ -48,4 +48,5 @@ test('release workflows use semantic-release and upload platform assets', () => 
   assert.match(releaseAssetsWorkflow, /MediaScribe-Portable\.exe/);
   assert.match(releaseAssetsWorkflow, /MediaScribe-macOS-\*\.dmg/);
   assert.match(releaseAssetsWorkflow, /MediaScribe-linux-\*\.AppImage/);
+  assert.match(releaseAssetsWorkflow, /MediaScribe-offline-bundle\.zip/);
 });

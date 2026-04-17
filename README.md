@@ -76,7 +76,7 @@ Desktop (Electron)
   ├─ IPC 브리지 (electron/main.cjs, preload)
   ├─ Whisper 오케스트레이션 (lib/*.cjs)
   │    - 프로세스/로그/진척률 파싱
-  └─ faster-whisper 런타임 (번들된 WhisperTranscriber + 첫 실행 자동 부트스트랩)
+  └─ faster-whisper 런타임 (번들된 WhisperTranscriber + 선택적 offline bundle + 첫 실행 자동 부트스트랩)
          └─ 결과 TXT / SRT 생성
 ```
 
@@ -119,6 +119,33 @@ npm run desktop
 npm run dev
 ```
 
+### 4) 오프라인 설치본 사용
+
+오프라인 설치본을 만들려면 `WhisperTranscriber/offline/` 아래에 아래 파일들을 미리 넣어야 합니다.
+
+```text
+WhisperTranscriber/offline/
+├─ python/
+│  └─ python-3.12.9-amd64.exe
+├─ wheelhouse/
+│  └─ *.whl (faster-whisper + dependencies)
+└─ model-cache/
+   └─ Whisper 모델 캐시
+```
+
+오프라인 모드는 다음 중 하나로 활성화할 수 있습니다.
+
+```bash
+npm run desktop -- --offline
+# 또는
+set MEDIASCRIBE_OFFLINE=1
+```
+
+오프라인 모드에서는 온라인 다운로드를 수행하지 않습니다.
+- Python 설치 파일은 로컬 `offline/python/` 경로에서만 찾습니다.
+- `pip` 는 로컬 `offline/wheelhouse/` 만 사용합니다.
+- 모델은 로컬 `offline/model-cache/` 가 미리 채워져 있어야 합니다.
+
 > ⚠️ 참고: Windows 전사 런타임 번들 구조(`WhisperTranscriber`)는 현재 Windows 중심입니다.
 
 ---
@@ -158,6 +185,7 @@ npm run dist:linux
 ### 릴리스 자산 업로드 (`.github/workflows/release-assets.yml`)
 - Release published 이벤트 시 OS별로 빌드
 - GitHub Release에 배포 파일 업로드
+- Windows 릴리스에는 `MediaScribe-offline-bundle.zip` 이 함께 올라가며, 이 파일을 미러링해서 air-gapped 환경에 전달할 수 있습니다.
 
 ### 커밋 규칙 (Conventional Commits)
 
@@ -191,7 +219,7 @@ MediaScribe/
 ## 🛠️ 현재 한계와 향후 계획
 
 - 현재 번들링은 `WhisperTranscriber`의 Windows 지향 스크립트(`.bat/.ps1`, `venv/Scripts/python.exe`)에 맞춰져 있습니다.
-- 유저 PC에 Python이 없거나 `faster-whisper`가 빠진 경우, 앱이 첫 실행/복구 과정에서 `WhisperTranscriber`를 사용자 데이터 폴더로 복사한 뒤 Python 런타임과 의존성을 자동 설치합니다.
+- 유저 PC에 Python이 없거나 `faster-whisper`가 빠진 경우, 앱이 첫 실행/복구 과정에서 `WhisperTranscriber`를 사용자 데이터 폴더로 복사한 뒤 Python 런타임과 의존성을 자동 설치합니다. 오프라인 모드에서는 이 동작이 온라인 다운로드 없이 로컬 `offline/` 번들만 사용하도록 바뀝니다.
 - macOS/Linux는 멀티 OS 빌드는 가능하지만, **동일한 런타임 성능/호환성**을 위한 플랫폼별 백엔드 정비가 남아 있습니다.
 
 ---

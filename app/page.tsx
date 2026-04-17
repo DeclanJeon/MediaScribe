@@ -3,8 +3,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
+  AlertTriangle,
+  ArrowRight,
+  BadgeCheck,
   BellRing,
-  CheckCircle2,
+  CloudOff,
   Copy,
   FileAudio,
   FileText,
@@ -64,6 +67,16 @@ function statusChip(status: JobStatus) {
   return '준비됨';
 }
 
+function getReadinessTone(isReady: boolean, isRepairing: boolean) {
+  if (isRepairing) return 'info';
+  return isReady ? 'success' : 'error';
+}
+
+function getReadinessLabel(isReady: boolean, isRepairing: boolean) {
+  if (isRepairing) return '자동 복구 중';
+  return isReady ? '준비 완료' : '복구 필요';
+}
+
 function playCompletionTone(isError: boolean) {
   if (typeof window === 'undefined') return;
   const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -99,7 +112,7 @@ export default function Home() {
   const [outputDir, setOutputDir] = useState('');
   const [model, setModel] = useState('small');
   const [language, setLanguage] = useState('');
-  const [statusMessage, setStatusMessage] = useState('음성/영상을 추가한 뒤 텍스트 추출을 시작하세요.');
+  const [statusMessage, setStatusMessage] = useState('엔진 상태를 확인한 뒤 파일을 추가하세요.');
   const [outputFormats, setOutputFormats] = useState<string[]>(['srt', 'txt']);
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const [engineStatus, setEngineStatus] = useState<DesktopEngineStatus | null>(null);
@@ -122,7 +135,7 @@ export default function Home() {
       if (requiresRepair && !autoRepairStartedRef.current) {
         autoRepairStartedRef.current = true;
         setIsRepairingEngine(true);
-        setStatusMessage('엔진을 자동 복구하는 중입니다...');
+        setStatusMessage('첫 실행 준비가 필요합니다. 엔진을 자동 복구하는 중입니다...');
         mediaScribe
           .repairEngine()
           .then((result) => {
@@ -139,6 +152,8 @@ export default function Home() {
           .finally(() => {
             setIsRepairingEngine(false);
           });
+      } else {
+        setStatusMessage('엔진과 모델 준비가 끝났습니다. 파일을 추가하면 바로 전사를 시작할 수 있습니다.');
       }
     });
 
@@ -228,6 +243,39 @@ export default function Home() {
   const activeFile = useMemo(() => files.find((item) => item.status === 'processing') ?? null, [files]);
   const activeDetectedLanguage = useMemo(() => findDetectedLanguage(logs, activeFile?.name), [logs, activeFile]);
   const latestDetectedLanguage = useMemo(() => findDetectedLanguage(logs), [logs]);
+  const engineReady = Boolean(engineStatus?.ready);
+  const runtimeReady = Boolean(engineStatus?.pythonExists);
+  const moduleReady = Boolean(engineStatus?.moduleInstalled);
+  const offlineReady = engineReady && runtimeReady && moduleReady;
+  const needsRepair = isDesktop && !offlineReady;
+  const readinessLabel = getReadinessLabel(offlineReady, isRepairingEngine);
+  const readinessTone = getReadinessTone(offlineReady, isRepairingEngine);
+  const readinessCards = [
+    {
+      label: '엔진',
+      value: readinessLabel,
+      detail: !isDesktop
+        ? '데스크톱 앱에서 로컬 전사를 사용할 수 있습니다.'
+        : engineReady
+          ? 'Whisper 엔진이 준비되어 있습니다.'
+          : 'Python 런타임 또는 의존성 복구가 필요합니다.',
+      tone: readinessTone,
+    },
+    {
+      label: '모델',
+      value: model,
+      detail: '선택한 모델로 전사를 시작합니다. 필요하면 언제든 바꿀 수 있습니다.',
+      tone: 'info' as const,
+    },
+    {
+      label: '오프라인 준비',
+      value: offlineReady ? '가능' : '준비 중',
+      detail: offlineReady
+        ? '엔진이 준비되어 네트워크 없이도 전사를 실행할 수 있습니다.'
+        : '자동 복구가 끝나면 오프라인 전사 준비가 완료됩니다.',
+      tone: offlineReady ? ('success' as const) : ('error' as const),
+    },
+  ];
 
   const addFiles = (pickedFiles: DesktopPickedFile[]) => {
     const supported = pickedFiles.filter((file) => file.type !== 'unsupported');
@@ -347,6 +395,7 @@ export default function Home() {
   const handleRepairEngine = async () => {
     if (!window.mediaScribe || isRepairingEngine) return;
     setIsRepairingEngine(true);
+    setStatusMessage('엔진 복구를 시작합니다. 잠시만 기다려 주세요.');
     try {
       const result = await window.mediaScribe.repairEngine();
       setToast({ message: `엔진 복구를 완료했습니다: ${result.engineRoot}`, tone: 'info' });
@@ -385,43 +434,96 @@ export default function Home() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
         <div className="grid gap-6 xl:grid-cols-[1.4fr_0.95fr]">
           <section className="space-y-8">
-            <div className="text-center">
-              <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="inline-flex items-center justify-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2 shadow-2xl backdrop-blur-xl mb-6">
-                <div className="rounded-full bg-indigo-500/15 text-indigo-200 p-2">
-                  <Sparkles className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-slate-400">MediaScribe</p>
-                  <h1 className="text-sm font-semibold text-white">깔끔한 전사 워크플로우</h1>
+            <div className="space-y-5">
+              <motion.div initial={{ opacity: 0, y: -18 }} animate={{ opacity: 1, y: 0 }} className={`rounded-[32px] border p-6 sm:p-8 shadow-2xl backdrop-blur-xl ${needsRepair ? 'border-amber-400/20 bg-amber-500/10' : 'border-white/10 bg-white/5'}`}>
+                <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="max-w-2xl">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.24em] text-slate-300">
+                      <Sparkles className="w-4 h-4 text-indigo-300" />
+                      MediaScribe · 준비 상태 확인
+                    </div>
+                    <h2 className="mt-4 text-3xl md:text-4xl font-semibold tracking-tight text-white">
+                      엔진, 모델, 오프라인 준비 상태를 먼저 확인하세요.
+                    </h2>
+                    <p className="mt-4 max-w-2xl text-base md:text-lg leading-8 text-slate-300">
+                      첫 실행이라면 로컬 엔진과 Python 런타임을 자동으로 점검합니다. 준비가 끝나면 인터넷 없이도 전사를 시작할 수 있고, 선택한 모델은 그대로 유지됩니다.
+                    </p>
+
+                    <div className="mt-5 flex flex-wrap gap-3">
+                      <button onClick={handleRepairEngine} disabled={isRepairingEngine} className={`inline-flex items-center rounded-full px-5 py-3 text-sm font-semibold transition-all ${isRepairingEngine ? 'cursor-not-allowed bg-white/10 text-slate-500' : needsRepair ? 'bg-amber-400 text-slate-950 shadow-lg shadow-amber-400/20 hover:bg-amber-300' : 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-400 active:scale-[0.98]'}`}>
+                        {isRepairingEngine ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wrench className="mr-2 h-4 w-4" />}
+                        {isRepairingEngine ? '복구 진행 중...' : needsRepair ? '자동 복구 실행' : '엔진 다시 점검'}
+                      </button>
+                      <button onClick={handleChooseFiles} className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 transition-colors hover:bg-white/10">
+                        파일 미리 담기
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-slate-300">
+                      <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${needsRepair ? 'border-amber-400/30 bg-amber-400/10 text-amber-100' : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'}`}>
+                        {needsRepair ? <AlertTriangle className="h-4 w-4" /> : <BadgeCheck className="h-4 w-4" />}
+                        {needsRepair ? '복구가 끝나면 전체 추출 시작이 활성화됩니다.' : '준비 완료: 파일을 추가하면 바로 추출할 수 있습니다.'}
+                      </span>
+                      <span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-cyan-100">
+                        <CloudOff className="h-4 w-4" />
+                        오프라인 처리 준비
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3 lg:w-[440px] lg:grid-cols-1 xl:grid-cols-3">
+                    {readinessCards.map((card) => (
+                      <div key={card.label} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                        <p className="text-[11px] uppercase tracking-[0.26em] text-slate-500">{card.label}</p>
+                        <p className={`mt-2 text-lg font-semibold ${card.tone === 'success' ? 'text-emerald-200' : card.tone === 'error' ? 'text-amber-100' : 'text-white'}`}>{card.value}</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-400">{card.detail}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </motion.div>
 
-              <motion.h2 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-4xl md:text-5xl font-semibold tracking-tight mb-4 text-white">
-                음성·영상을 세련된 작업 흐름으로 정리하세요.
-              </motion.h2>
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+                <div
+                  className={`relative rounded-[28px] border border-white/10 bg-white/5 p-8 text-center shadow-2xl backdrop-blur-xl transition-all duration-200 ease-out ${isDragging ? 'border-indigo-400/60 bg-indigo-500/10 scale-[1.01]' : 'hover:border-white/20 hover:bg-white/[0.07]'}`}
+                  onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={handleDrop}
+                >
+                  <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/80 text-slate-200">
+                    <UploadCloud className="w-7 h-7" />
+                  </div>
+                  <h3 className="text-2xl font-semibold tracking-tight mb-2 text-white">파일을 끌어놓거나 선택해서 시작하세요</h3>
+                  <p className="mx-auto mb-6 max-w-3xl text-slate-400 leading-7">
+                    MP3, WAV, M4A, MP4, MKV, WEBM 등 지원 포맷을 처리합니다. 로컬에서 실행되므로 업로드 대기 없이 전사가 진행되고, {needsRepair ? '복구가 끝나는 즉시' : '준비가 이미 끝난 상태에서'} 시작할 수 있습니다.
+                  </p>
 
-              <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="text-lg text-slate-400 max-w-3xl mx-auto leading-8">
-                faster-whisper 기반 데스크톱 앱이 파일 추가부터 실시간 진행, 로그 저장, 엔진 복구까지 한 번에 처리합니다. 설치형이지만 복잡함은 줄이고, 결과는 더 빠르게 확인할 수 있습니다.
-              </motion.p>
-            </div>
+                  <div className="mb-6 grid gap-3 text-left md:grid-cols-3">
+                    {[
+                      { title: '1. 상태 확인', text: needsRepair ? '오른쪽에서 엔진 상태를 확인한 뒤 자동 복구를 눌러 주세요.' : '엔진과 오프라인 준비 상태가 모두 초록색인지 확인하세요.' },
+                      { title: '2. 파일 추가', text: '음성 또는 영상 파일을 끌어놓거나 파일 선택으로 대기열에 넣으세요.' },
+                      { title: '3. 전체 추출 시작', text: '모델과 출력 형식을 확인한 뒤 전체 추출 시작 버튼을 누르세요.' },
+                    ].map((step) => (
+                      <div key={step.title} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                        <p className="text-sm font-semibold text-white">{step.title}</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-400">{step.text}</p>
+                      </div>
+                    ))}
+                  </div>
 
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-              <div
-                className={`relative rounded-[28px] border border-white/10 bg-white/5 p-10 text-center shadow-2xl backdrop-blur-xl transition-all duration-200 ease-out ${isDragging ? 'border-indigo-400/60 bg-indigo-500/10 scale-[1.01]' : 'hover:border-white/20 hover:bg-white/7'}`}
-                onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={handleDrop}
-              >
-                <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/80 text-slate-200">
-                  <UploadCloud className="w-7 h-7" />
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button onClick={handleChooseFiles} className="inline-flex items-center rounded-full bg-indigo-500 px-6 py-3 font-semibold text-white shadow-lg shadow-indigo-500/20 transition-all hover:bg-indigo-400 active:scale-[0.98]">
+                      파일 선택
+                    </button>
+                    <button onClick={handleRepairEngine} disabled={isRepairingEngine} className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-6 py-3 font-semibold text-slate-100 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50">
+                      {isRepairingEngine ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wrench className="mr-2 h-4 w-4" />}
+                      {isRepairingEngine ? '복구 중...' : '자동 복구 다시 실행'}
+                    </button>
+                  </div>
                 </div>
-                <h3 className="text-2xl font-semibold tracking-tight mb-2 text-white">파일을 끌어놓거나 선택해서 시작하세요</h3>
-                <p className="mb-6 text-slate-400 leading-7">MP3, WAV, M4A, MP4, MKV, WEBM 등 지원 포맷을 빠르게 처리합니다. 로컬에서 실행되므로 업로드 대기 없이 바로 전사가 시작됩니다.</p>
-                <button onClick={handleChooseFiles} className="inline-flex items-center rounded-full bg-indigo-500 px-6 py-3 font-semibold text-white shadow-lg shadow-indigo-500/20 transition-all hover:bg-indigo-400 active:scale-[0.98]">
-                  파일 선택
-                </button>
-              </div>
-            </motion.div>
+              </motion.div>
+            </div>
 
             <div className="rounded-[28px] border border-white/10 bg-white/5 p-6 space-y-5 shadow-2xl backdrop-blur-xl">
               <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -443,7 +545,7 @@ export default function Home() {
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div>
                   <h3 className="text-lg font-semibold text-white">라이브 상태</h3>
-                  <p className="mt-1 text-sm text-slate-400">진행 중인 단계와 방금 나온 로그를 정리해서 보여줍니다.</p>
+                  <p className="text-sm text-slate-400">현재 단계와 실시간 로그를 모아 보여줍니다.</p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-slate-400">현재 단계</p>
@@ -482,7 +584,7 @@ export default function Home() {
                       </div>
                     </>
                   ) : (
-                    <p className="text-sm text-slate-400">현재 실행 중인 파일이 없습니다.</p>
+                    <p className="text-sm text-slate-400">현재 실행 중인 파일이 없습니다. 파일을 추가하면 여기에서 진행률과 추출 문장이 살아납니다.</p>
                   )}
                 </div>
 
@@ -490,7 +592,7 @@ export default function Home() {
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-3">실시간 출력</p>
                   <div className="space-y-2 font-mono text-xs leading-6 max-h-[240px] overflow-y-auto">
                     {latestLines.length === 0 ? (
-                      <p className="text-slate-500">로그가 아직 없습니다.</p>
+                      <p className="text-slate-500">로그가 아직 없습니다. 변환을 시작하면 복구, 전사, 저장 기록이 순서대로 쌓입니다.</p>
                     ) : (
                       latestLines.map((line, index) => (
                         <div key={`${index}-${line.slice(0, 20)}`} className="border-b border-slate-800/60 pb-2 text-slate-200 break-all">
@@ -510,6 +612,7 @@ export default function Home() {
                     <div>
                       <h3 className="text-lg font-medium text-white">작업 대기열 ({files.length})</h3>
                       <p className="text-sm text-slate-400">처리 중 {summary.active} · 완료 {summary.completed} · 실패 {summary.failed}</p>
+                      <p className="mt-1 text-xs text-slate-500">지원되는 파일을 추가하면 작업 대기열과 진행률이 여기에 표시됩니다.</p>
                     </div>
                     <div className="flex items-center gap-3 flex-wrap">
                       <button onClick={() => window.mediaScribe?.openFolder(outputDir)} className="flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2.5 font-medium text-slate-100 hover:bg-white/10">
@@ -588,12 +691,13 @@ export default function Home() {
                 <p className="mt-1 text-sm text-slate-400">로컬 엔진, Python 런타임, 출력 위치를 한눈에 확인합니다.</p>
               </div>
 
-              <div className={`rounded-2xl border p-4 ${engineStatus?.ready ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100' : 'border-amber-500/20 bg-amber-500/10 text-amber-100'}`}>
+              <div className={`rounded-2xl border p-4 ${offlineReady ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100' : 'border-amber-500/20 bg-amber-500/10 text-amber-100'}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="font-medium">엔진 상태: {engineStatus?.ready ? '준비 완료' : '복구 필요'}</p>
-                    <p className="mt-1 text-xs">faster-whisper: {engineStatus?.moduleInstalled ? '설치됨' : '미설치 또는 손상됨'}</p>
-                    <p className="mt-1 text-xs">Python 런타임: {engineStatus?.pythonExists ? '확인됨' : '미설치 또는 초기화 필요'}</p>
+                    <p className="font-medium">엔진 상태: {readinessLabel}</p>
+                    <p className="mt-1 text-xs">현재 모델: {model}</p>
+                    <p className="mt-1 text-xs">faster-whisper: {moduleReady ? '설치됨' : '미설치 또는 손상됨'}</p>
+                    <p className="mt-1 text-xs">Python 런타임: {runtimeReady ? '확인됨' : '미설치 또는 초기화 필요'}</p>
                     <p className="mt-1 break-all text-xs opacity-80">{engineStatus?.runnerScript || '엔진 정보 확인 중...'}</p>
                   </div>
                   <button onClick={handleRepairEngine} disabled={isRepairingEngine} className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-slate-100 transition-colors hover:bg-white/10 disabled:opacity-50">
@@ -672,7 +776,7 @@ export default function Home() {
                   ))}
                 </div>
                 <div ref={logContainerRef} className="h-[320px] overflow-y-auto bg-slate-950/80 px-4 py-3 text-xs leading-6 text-slate-100">
-                  {filteredLogs.length === 0 ? <p className="text-slate-500">로그가 여기에 표시됩니다.</p> : filteredLogs.map((entry) => (
+                  {filteredLogs.length === 0 ? <p className="text-slate-500">로그가 아직 없습니다. 변환을 시작하면 복구, 전사, 저장 기록이 순서대로 쌓입니다.</p> : filteredLogs.map((entry) => (
                     <div key={entry.id} className="border-b border-white/5 py-2 last:border-b-0">
                       <div className="flex items-center gap-2 text-[11px] text-slate-400">
                         <span>{entry.timestamp}</span>
@@ -692,7 +796,7 @@ export default function Home() {
                 </div>
                 <div className="max-h-[240px] overflow-y-auto px-4 py-3 space-y-3">
                   {timelineItems.length === 0 ? (
-                    <p className="text-sm text-slate-400">타임라인 항목이 아직 없습니다.</p>
+                    <p className="text-sm text-slate-400">아직 타임라인이 비어 있습니다. 파일을 추가하면 준비, 복구, 전사 순서로 단계가 누적됩니다.</p>
                   ) : (
                     timelineItems.map((item) => (
                       <div key={item.id} className="flex gap-3">

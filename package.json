@@ -21,6 +21,7 @@
     "dist:installer": "npm run clean:dist && npm run build:icons && npm run build:web && electron-builder --publish never --win nsis",
     "dist:mac": "npm run clean:dist && npm run build:icons && npm run build:web && electron-builder --publish never --mac dmg zip",
     "dist:linux": "npm run clean:dist && npm run build:icons && npm run build:web && electron-builder --publish never --linux AppImage deb",
+    "dist:offline-bundle": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path 'WhisperTranscriber/offline') { New-Item -ItemType Directory -Path dist -Force | Out-Null; Compress-Archive -Path 'WhisperTranscriber/offline/*' -DestinationPath 'dist/MediaScribe-offline-bundle.zip' -Force }\"",
     "release": "semantic-release"
   },
   "dependencies": {

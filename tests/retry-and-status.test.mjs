@@ -11,10 +11,18 @@ test('inspectEnginePaths exposes faster-whisper installation state', () => {
     runnerExists: true,
     installerExists: true,
     moduleInstalled: false,
+    offlineMode: true,
+    offlineBundleExists: true,
+    wheelhouseExists: true,
+    modelCacheExists: true,
   });
 
   assert.equal(status.moduleInstalled, false);
   assert.equal(status.ready, true);
+  assert.equal(status.offlineMode, true);
+  assert.equal(status.offlineBundleAvailable, true);
+  assert.equal(status.wheelhouseAvailable, true);
+  assert.equal(status.modelCacheAvailable, true);
 });
 
 test('shouldRetryTranscriptionError only retries once for missing faster-whisper', () => {
