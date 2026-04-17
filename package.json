@@ -9,7 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node --test \"tests/*.test.mjs\"",
+    "test": "node scripts/run-tests.cjs",
     "build:web": "next build",
     "build:icons": "node scripts/generate-icons.cjs",
     "clean:dist": "node scripts/clean-dist.cjs",
