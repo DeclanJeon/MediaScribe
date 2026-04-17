@@ -10,13 +10,14 @@ const releaseVersionWorkflow = fs.readFileSync(path.resolve('./.github/workflows
 const releaseAssetsWorkflow = fs.readFileSync(path.resolve('./.github/workflows/release-assets.yml'), 'utf8');
 
 test('package scripts include multi-platform distribution and semantic-release commands', () => {
-  assert.equal(packageJson.scripts['dist:win'].includes('electron-builder --win'), true);
-  assert.equal(packageJson.scripts['dist:mac'].includes('electron-builder --mac'), true);
-  assert.equal(packageJson.scripts['dist:linux'].includes('electron-builder --linux'), true);
+  assert.equal(packageJson.scripts['dist:win'].includes('electron-builder --publish never --win'), true);
+  assert.equal(packageJson.scripts['dist:mac'].includes('electron-builder --publish never --mac'), true);
+  assert.equal(packageJson.scripts['dist:linux'].includes('electron-builder --publish never --linux'), true);
   assert.equal(packageJson.scripts.release, 'semantic-release');
 });
 
 test('electron-builder config includes windows, macOS, and linux targets', () => {
+  assert.equal(packageJson.author.includes('@users.noreply.github.com'), true);
   assert.deepEqual(packageJson.build.win.target, ['portable', 'nsis']);
   assert.deepEqual(packageJson.build.mac.target, ['dmg', 'zip']);
   assert.deepEqual(packageJson.build.linux.target, ['AppImage', 'deb']);
