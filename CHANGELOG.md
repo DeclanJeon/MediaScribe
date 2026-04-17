@@ -1,3 +1,9 @@
+## [1.3.1](https://github.com/DeclanJeon/MediaScribe/compare/v1.3.0...v1.3.1) (2026-04-17)
+
+### Bug Fixes
+
+* complete stop and purge cleanup ([bc8ff1a](https://github.com/DeclanJeon/MediaScribe/commit/bc8ff1a01284cfec3fa685f9b8ae3aa34424fc79))
+
 ## [1.3.0](https://github.com/DeclanJeon/MediaScribe/compare/v1.2.0...v1.3.0) (2026-04-17)
 
 ### Features
