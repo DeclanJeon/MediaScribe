@@ -41,6 +41,9 @@ test('CI workflow runs on macOS, Windows, and Linux', () => {
 
 test('release workflows use semantic-release and upload platform assets', () => {
   assert.match(releaseVersionWorkflow, /semantic-release/);
+  assert.match(releaseAssetsWorkflow, /workflow_run:/);
+  assert.match(releaseAssetsWorkflow, /Release Version/);
+  assert.match(releaseAssetsWorkflow, /releases\/latest/);
   assert.match(releaseAssetsWorkflow, /MediaScribe-Portable\.exe/);
   assert.match(releaseAssetsWorkflow, /MediaScribe-macOS-\*\.dmg/);
   assert.match(releaseAssetsWorkflow, /MediaScribe-linux-\*\.AppImage/);

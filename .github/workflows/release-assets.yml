@@ -1,15 +1,18 @@
 name: Release Assets
 
 on:
-  release:
+  workflow_run:
+    workflows:
+      - Release Version
     types:
-      - published
+      - completed
 
 permissions:
   contents: write
 
 jobs:
   build-and-upload:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -49,13 +52,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_RUN_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { execSync } = require('node:child_process');
+          const startedAt = Date.parse(process.env.WORKFLOW_RUN_STARTED_AT);
+          const repo = process.env.GITHUB_REPOSITORY;
+          const release = JSON.parse(execSync(`gh api repos/${repo}/releases/latest`, { encoding: 'utf8' }));
+          const publishedAt = Date.parse(release.published_at || '');
+          const output = process.env.GITHUB_OUTPUT;
+          if (!publishedAt || publishedAt <= startedAt) {
+            fs.appendFileSync(output, 'skip_build=true\n');
+            process.exit(0);
+          }
+          fs.appendFileSync(output, `skip_build=false\ntag_name=${release.tag_name}\n`);
+          NODE
+
       - name: Build release assets
+        if: ${{ steps.release.outputs.skip_build != 'true' }}
         run: ${{ matrix.build_command }}
 
       - name: Upload assets to GitHub Release
+        if: ${{ steps.release.outputs.skip_build != 'true' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ steps.release.outputs.tag_name }}
           files: ${{ matrix.files }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
