@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/DeclanJeon/MediaScribe/compare/v1.0.2...v1.1.0) (2026-04-17)
+
+### Features
+
+* auto-bootstrap runtime and refresh UI ([6a2f3e0](https://github.com/DeclanJeon/MediaScribe/commit/6a2f3e05696c07a80a2b119f1af59a497d318caf))
+
 ## [1.0.2](https://github.com/DeclanJeon/MediaScribe/compare/v1.0.1...v1.0.2) (2026-04-17)
 
 ### Bug Fixes
