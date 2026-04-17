@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/DeclanJeon/MediaScribe/compare/v1.0.0...v1.0.1) (2026-04-17)
+
+### Bug Fixes
+
+* trigger release assets after version workflow ([dc67019](https://github.com/DeclanJeon/MediaScribe/commit/dc67019baf8f425c539162b6f3c268f94edb6e82))
+
 ## 1.0.0 (2026-04-17)
 
 ### Features

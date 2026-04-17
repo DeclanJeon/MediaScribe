@@ -1,6 +1,6 @@
 {
   "name": "mediascribe",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Desktop UI for faster-whisper media transcription",
   "main": "electron/main.cjs",
