@@ -10,13 +10,16 @@ import {
   CloudOff,
   Copy,
   FileAudio,
-  FileText,
   FileVideo,
   FolderOpen,
   Loader2,
+  Minus,
   Save,
   ScrollText,
   Sparkles,
+  Square,
+  StopCircle,
+  Trash2,
   UploadCloud,
   Wrench,
   X,
@@ -24,7 +27,7 @@ import {
 import { buildProgressSnapshot, createLogEntry } from '@/lib/progress-utils.cjs';
 import liveProgress from '@/lib/live-progress.cjs';
 
-type JobStatus = 'idle' | 'processing' | 'done' | 'error';
+type JobStatus = 'idle' | 'processing' | 'done' | 'error' | 'cancelled';
 type ToastTone = 'success' | 'error' | 'info';
 type LogFilter = 'all' | 'info' | 'warn' | 'error' | 'success';
 
@@ -64,6 +67,7 @@ function statusChip(status: JobStatus) {
   if (status === 'done') return '완료';
   if (status === 'processing') return '처리 중';
   if (status === 'error') return '실패';
+  if (status === 'cancelled') return '중지됨';
   return '준비됨';
 }
 
@@ -106,6 +110,7 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [isConvertingAll, setIsConvertingAll] = useState(false);
+  const [isStoppingTranscription, setIsStoppingTranscription] = useState(false);
   const [isSavingLogs, setIsSavingLogs] = useState(false);
   const [isRepairingEngine, setIsRepairingEngine] = useState(false);
   const autoRepairStartedRef = useRef(false);
@@ -202,6 +207,10 @@ export default function Home() {
         phaseStartedAtRef.current = null;
         setPhaseStartedAt(null);
         setStatusMessage('텍스트 추출이 완료되었습니다.');
+      } else if (payload.status === 'cancelled') {
+        phaseStartedAtRef.current = null;
+        setPhaseStartedAt(null);
+        setStatusMessage('추출을 중지했습니다.');
       } else if (payload.status === 'error') {
         phaseStartedAtRef.current = null;
         setPhaseStartedAt(null);
@@ -345,6 +354,7 @@ export default function Home() {
     if (!window.mediaScribe || files.length === 0 || isConvertingAll) return;
 
     setIsConvertingAll(true);
+    setIsStoppingTranscription(false);
     setLogs([]);
     phaseStartedAtRef.current = null;
     setPhaseStartedAt(null);
@@ -361,9 +371,14 @@ export default function Home() {
       });
       setOutputDir(response.outputDir);
       const hasErrors = response.results.some((item) => item.kind === 'status' && item.status === 'error');
-      setStatusMessage(hasErrors ? '완료되었지만 일부 파일은 실패했습니다.' : '모든 파일의 텍스트 추출이 끝났습니다.');
-      setToast({ message: hasErrors ? '일부 파일 실패와 함께 작업이 끝났습니다.' : '텍스트 추출이 완료되었습니다.', tone: hasErrors ? 'error' : 'success' });
-      playCompletionTone(hasErrors);
+      if (response.cancelled) {
+        setStatusMessage('추출을 중지했습니다.');
+        setToast({ message: '추출을 중지했습니다.', tone: 'info' });
+      } else {
+        setStatusMessage(hasErrors ? '완료되었지만 일부 파일은 실패했습니다.' : '모든 파일의 텍스트 추출이 끝났습니다.');
+        setToast({ message: hasErrors ? '일부 파일 실패와 함께 작업이 끝났습니다.' : '텍스트 추출이 완료되었습니다.', tone: hasErrors ? 'error' : 'success' });
+        playCompletionTone(hasErrors);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : '변환을 시작하지 못했습니다.';
       setStatusMessage(message);
@@ -372,6 +387,7 @@ export default function Home() {
       playCompletionTone(true);
     } finally {
       setIsConvertingAll(false);
+      setIsStoppingTranscription(false);
       await refreshEngineStatus();
     }
   };
@@ -395,6 +411,18 @@ export default function Home() {
     }
   };
 
+  const handleStopConversion = async () => {
+    if (!window.mediaScribe || !isConvertingAll || isStoppingTranscription) return;
+    setIsStoppingTranscription(true);
+    setStatusMessage('추출을 중지하는 중입니다...');
+    try {
+      await window.mediaScribe.stopTranscription();
+    } catch (error) {
+      setIsStoppingTranscription(false);
+      setToast({ message: error instanceof Error ? error.message : '추출 중지 요청에 실패했습니다.', tone: 'error' });
+    }
+  };
+
   const handleRepairEngine = async () => {
     if (!window.mediaScribe || isRepairingEngine) return;
     setIsRepairingEngine(true);
@@ -407,6 +435,21 @@ export default function Home() {
     } finally {
       setIsRepairingEngine(false);
       await refreshEngineStatus();
+    }
+  };
+
+  const handlePurgeInstallation = async () => {
+    if (!window.mediaScribe || isConvertingAll || isRepairingEngine) return;
+    const confirmed = window.confirm('설치된 런타임, Python, 모델 캐시를 모두 삭제할까요?\n삭제 후 다시 추출하면 자동으로 재설치됩니다.');
+    if (!confirmed) return;
+
+    setStatusMessage('설치된 데이터를 삭제하는 중입니다...');
+    try {
+      const result = await window.mediaScribe.purgeInstallation();
+      setToast({ message: result.removed ? `설치 데이터를 삭제했습니다: ${result.engineRoot}` : '삭제할 설치 데이터가 없습니다.', tone: 'info' });
+      await refreshEngineStatus();
+    } catch (error) {
+      setToast({ message: error instanceof Error ? error.message : '설치 데이터 삭제에 실패했습니다.', tone: 'error' });
     }
   };
 
@@ -434,6 +477,33 @@ export default function Home() {
         )}
       </AnimatePresence>
 
+      {isDesktop && (
+        <header className="sticky top-0 z-50 border-b border-white/10 bg-[#09090b]/90 backdrop-blur-xl">
+          <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-indigo-500/15 text-indigo-200 shadow-lg shadow-indigo-500/10">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">MediaScribe</p>
+                <p className="text-sm text-slate-300">로컬 전사 작업실</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+              <button onClick={() => window.mediaScribe?.minimizeWindow()} className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition-colors hover:bg-white/10 hover:text-white" aria-label="창 최소화">
+                <Minus className="h-4 w-4" />
+              </button>
+              <button onClick={() => window.mediaScribe?.toggleMaximizeWindow()} className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition-colors hover:bg-white/10 hover:text-white" aria-label="창 최대화/복원">
+                <Square className="h-4 w-4" />
+              </button>
+              <button onClick={() => window.mediaScribe?.closeWindow()} className="rounded-full border border-rose-500/20 bg-rose-500/10 p-2 text-rose-100 transition-colors hover:bg-rose-500/20 hover:text-white" aria-label="창 닫기">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </header>
+      )}
+
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-6">
         <motion.section initial={{ opacity: 0, y: -18 }} animate={{ opacity: 1, y: 0 }} className={`rounded-[32px] border p-6 sm:p-8 shadow-2xl backdrop-blur-xl ${needsRepair ? 'border-amber-400/20 bg-amber-500/10' : 'border-white/10 bg-white/5'}`}>
           <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
@@ -454,6 +524,12 @@ export default function Home() {
                   {isConvertingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
                   {primaryActionLabel}
                 </button>
+                {isConvertingAll && (
+                  <button onClick={handleStopConversion} disabled={isStoppingTranscription} className={`inline-flex items-center rounded-full border px-5 py-3 text-sm font-semibold transition-all ${isStoppingTranscription ? 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500' : 'border-rose-500/30 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20'}`}>
+                    {isStoppingTranscription ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <StopCircle className="mr-2 h-4 w-4" />}
+                    {isStoppingTranscription ? '중지 중...' : '추출 중지'}
+                  </button>
+                )}
                 <button onClick={handleChooseOutputDir} className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 transition-colors hover:bg-white/10">
                   <FolderOpen className="mr-2 h-4 w-4" /> 출력 폴더
                 </button>
@@ -563,6 +639,15 @@ export default function Home() {
                   ))}
                 </div>
               </div>
+              <div className="flex flex-wrap gap-3 lg:col-span-4">
+                <button onClick={handleRepairEngine} disabled={isRepairingEngine} className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-100 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50">
+                  {isRepairingEngine ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wrench className="mr-2 h-4 w-4" />}
+                  {isRepairingEngine ? '복구 중...' : '엔진 복구'}
+                </button>
+                <button onClick={handlePurgeInstallation} disabled={isConvertingAll || isRepairingEngine} className="inline-flex items-center rounded-full border border-rose-500/20 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-100 transition-colors hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50">
+                  <Trash2 className="mr-2 h-4 w-4" /> 설치 데이터 삭제
+                </button>
+              </div>
             </div>
           </div>
         </details>
@@ -572,7 +657,7 @@ export default function Home() {
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <h3 className="text-lg font-semibold text-white">대기열</h3>
-                <p className="text-sm text-slate-400">{summary.completed}개 완료 · {summary.active}개 진행 중 · {summary.failed}개 실패</p>
+                <p className="text-sm text-slate-400">{summary.completed}개 완료 · {summary.cancelled}개 중지 · {summary.failed}개 실패</p>
               </div>
               <button onClick={handleConvertAll} disabled={isConvertingAll || !isDesktop || !engineStatus?.ready} className={`inline-flex items-center rounded-full px-5 py-2.5 font-medium transition-all ${(isConvertingAll || !isDesktop || !engineStatus?.ready) ? 'cursor-not-allowed bg-white/10 text-slate-500' : 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-400 active:scale-[0.98]'}`}>
                 {isConvertingAll ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> 추출 중...</> : <><UploadCloud className="w-4 h-4 mr-2" /> 추출 시작</>}
@@ -596,7 +681,7 @@ export default function Home() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className={`rounded-full px-3 py-1 text-sm font-medium ${file.status === 'done' ? 'bg-emerald-500/10 text-emerald-200' : file.status === 'processing' ? 'bg-indigo-500/10 text-indigo-200' : file.status === 'error' ? 'bg-rose-500/10 text-rose-200' : 'bg-white/5 text-slate-400'}`}>
+                      <span className={`rounded-full px-3 py-1 text-sm font-medium ${file.status === 'done' ? 'bg-emerald-500/10 text-emerald-200' : file.status === 'processing' ? 'bg-indigo-500/10 text-indigo-200' : file.status === 'error' ? 'bg-rose-500/10 text-rose-200' : file.status === 'cancelled' ? 'bg-slate-500/10 text-slate-200' : 'bg-white/5 text-slate-400'}`}>
                         {statusChip(file.status)}
                       </span>
                       <button onClick={() => removeFile(file.id)} disabled={file.status === 'processing'} className="rounded-full p-2 text-slate-500 transition-colors hover:bg-rose-500/10 hover:text-rose-200 disabled:opacity-50">
@@ -611,7 +696,7 @@ export default function Home() {
                       <span>{file.progress}%</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                      <div className={`h-full rounded-full transition-all duration-300 ${file.status === 'error' ? 'bg-rose-500' : file.status === 'done' ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${file.progress}%` }} />
+                      <div className={`h-full rounded-full transition-all duration-300 ${file.status === 'error' ? 'bg-rose-500' : file.status === 'done' ? 'bg-emerald-500' : file.status === 'cancelled' ? 'bg-slate-500' : 'bg-indigo-500'}`} style={{ width: `${file.progress}%` }} />
                     </div>
                   </div>
 

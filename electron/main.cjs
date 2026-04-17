@@ -12,6 +12,7 @@ const { buildPipUpgradeArgs, buildModelPrimeArgs, buildPythonImportCheckArgs, bu
 const isDev = !app.isPackaged;
 const offlineModeEnabled = resolveOfflineMode();
 let mainWindow = null;
+let activeTranscriptionSession = null;
 
 function getOfflinePaths(engineRoot) {
   return {
@@ -124,14 +125,80 @@ function sendLog(level, fileName, message, meta) {
   });
 }
 
+function isCancellationMessage(message) {
+  const text = String(message || '').toLowerCase();
+  return text.includes('cancelled by user') || text.includes('stopped by user') || text.includes('사용자가 추출을 중지했습니다');
+}
+
+function terminateChildProcess(child) {
+  if (!child || child.killed) {
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    try {
+      spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+      return;
+    } catch {
+      // fall through to direct kill
+    }
+  }
+
+  try {
+    child.kill('SIGTERM');
+  } catch {
+    // ignore kill failures
+  }
+}
+
+function createTranscriptionSession() {
+  const session = {
+    stopRequested: false,
+    activeChild: null,
+  };
+  activeTranscriptionSession = session;
+  return session;
+}
+
+function clearTranscriptionSession(session) {
+  if (activeTranscriptionSession === session) {
+    activeTranscriptionSession = null;
+  }
+}
+
+function requestTranscriptionStop() {
+  const session = activeTranscriptionSession;
+  if (!session) {
+    return false;
+  }
+
+  session.stopRequested = true;
+  terminateChildProcess(session.activeChild);
+  return true;
+}
+
+function removePathRecursive(targetPath) {
+  if (!targetPath || !fs.existsSync(targetPath)) {
+    return false;
+  }
+  fs.rmSync(targetPath, { recursive: true, force: true });
+  return true;
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 960,
-    minWidth: 1100,
+    width: 1280,
+    height: 860,
+    minWidth: 1180,
     minHeight: 760,
+    show: false,
+    frame: false,
+    autoHideMenuBar: true,
     title: 'MediaScribe',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#09090b',
     icon: getAssetPath('app-icon-256.png'),
     webPreferences: {
       contextIsolation: true,
@@ -140,12 +207,27 @@ async function createWindow() {
     },
   });
 
+  mainWindow.on('closed', () => {
+    if (mainWindow === null) {
+      return;
+    }
+    mainWindow = null;
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    if (!mainWindow) {
+      return;
+    }
+    mainWindow.maximize();
+    mainWindow.show();
+  });
+
+  mainWindow.removeMenu();
+  mainWindow.setMenuBarVisibility(false);
+
   await mainWindow.loadURL(getUiEntry());
 }
 
-function ensureEngineInstalled() {
-  return ensureEngineWorkspace();
-}
 
 async function downloadFile(url, destination) {
   const response = await fetch(url);
@@ -157,16 +239,20 @@ async function downloadFile(url, destination) {
   return destination;
 }
 
-async function runShellCommand(executable, args, fileName = 'bootstrap') {
+async function runShellCommand(executable, args, fileName = 'bootstrap', session = null) {
   return runCommand({ executable, args }, {
     name: fileName,
     path: executable,
-  });
+  }, session);
 }
 
-async function primeDefaultModelCache(engineRoot, modelName = 'small') {
+async function primeDefaultModelCache(engineRoot, modelName = 'small', session = null) {
   const venvPython = getPythonExePath(engineRoot);
   const transcribeScript = path.join(engineRoot, 'transcribe_media.py');
+
+  if (session?.stopRequested) {
+    return false;
+  }
 
   if (!fs.existsSync(venvPython) || !fs.existsSync(transcribeScript)) {
     sendLog('info', '', 'Whisper 모델 프라임을 건너뜁니다. 런타임 또는 스크립트가 아직 없습니다.');
@@ -190,7 +276,7 @@ async function primeDefaultModelCache(engineRoot, modelName = 'small') {
   return true;
 }
 
-async function bootstrapEngineRuntime(engineRoot) {
+async function bootstrapEngineRuntime(engineRoot, session = null) {
   const bootstrapPaths = describeBootstrapPaths(engineRoot);
   const venvPython = getPythonExePath(engineRoot);
   const runtimePython = getPythonRuntimeExePath(engineRoot);
@@ -236,7 +322,7 @@ async function bootstrapEngineRuntime(engineRoot) {
     if (!offlineModeEnabled) {
       await downloadFile(installerUrl, installerPath);
     }
-    await runShellCommand(installerPath, buildPythonInstallerArgs(engineRoot), 'python-installer');
+    await runShellCommand(installerPath, buildPythonInstallerArgs(engineRoot), 'python-installer', session);
     if (!offlineModeEnabled) {
       try {
         fs.unlinkSync(installerPath);
@@ -251,7 +337,7 @@ async function bootstrapEngineRuntime(engineRoot) {
   }
 
   if (!venvPythonExists) {
-    await runShellCommand(runtimePython, buildVenvArgs(engineRoot), 'python-venv');
+    await runShellCommand(runtimePython, buildVenvArgs(engineRoot), 'python-venv', session);
   }
 
   if (!fs.existsSync(venvPython)) {
@@ -271,8 +357,8 @@ async function bootstrapEngineRuntime(engineRoot) {
     offline: offlineModeEnabled,
     wheelhouseDir: wheelhouseExists ? bootstrapPaths.offlineWheelhouseRoot : '',
   };
-  await runShellCommand(venvPython, buildPipUpgradeArgs(['pip', 'setuptools', 'wheel'], pipOptions), 'pip-upgrade');
-  await runShellCommand(venvPython, buildPipUpgradeArgs(['faster-whisper'], pipOptions), 'faster-whisper-install');
+  await runShellCommand(venvPython, buildPipUpgradeArgs(['pip', 'setuptools', 'wheel'], pipOptions), 'pip-upgrade', session);
+  await runShellCommand(venvPython, buildPipUpgradeArgs(['faster-whisper'], pipOptions), 'faster-whisper-install', session);
 
   const verify = spawnSync(venvPython, buildPythonImportCheckArgs(), {
     windowsHide: true,
@@ -282,11 +368,11 @@ async function bootstrapEngineRuntime(engineRoot) {
     throw new Error(verify.stderr || verify.stdout || 'Failed to verify faster-whisper after bootstrap.');
   }
 
-  await primeDefaultModelCache(engineRoot, 'small');
+  await primeDefaultModelCache(engineRoot, 'small', session);
   return getEngineStatus();
 }
 
-async function ensureRuntimeReady() {
+async function ensureRuntimeReady(session = null) {
   const engineRoot = ensureEngineWorkspace();
   const engineStatus = getEngineStatus();
   if (!engineStatus.ready) {
@@ -296,7 +382,7 @@ async function ensureRuntimeReady() {
     return engineStatus;
   }
   sendLog('info', '', 'faster-whisper 런타임이 부족해 자동 설치를 시작합니다.');
-  return bootstrapEngineRuntime(engineRoot);
+  return bootstrapEngineRuntime(engineRoot, session);
 }
 
 function readTextIfPresent(filePath) {
@@ -360,15 +446,35 @@ function emitProcessLine(file, level, line, progress) {
   sendProgress(payload);
 }
 
-function runCommand(command, file) {
+function runCommand(command, file, session = null) {
   return new Promise((resolve, reject) => {
+    if (session?.stopRequested) {
+      reject(new Error('Transcription cancelled by user.'));
+      return;
+    }
+
     const child = spawn(command.executable, command.args, {
       windowsHide: true,
       env: command.env ? { ...process.env, ...command.env } : process.env,
     });
 
+    if (session) {
+      session.activeChild = child;
+    }
+
     let stdout = '';
     let stderr = '';
+
+    const finalize = (error, payload) => {
+      if (session && session.activeChild === child) {
+        session.activeChild = null;
+      }
+      if (error) {
+        reject(error);
+      } else {
+        resolve(payload);
+      }
+    };
 
     const handleChunk = (kind, chunk) => {
       const text = chunk.toString();
@@ -387,25 +493,29 @@ function runCommand(command, file) {
     child.stdout.on('data', (chunk) => handleChunk('stdout', chunk));
     child.stderr.on('data', (chunk) => handleChunk('stderr', chunk));
 
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve({ stdout, stderr, code });
+    child.on('error', (error) => finalize(error));
+    child.on('close', (code, signal) => {
+      if (session?.stopRequested || signal === 'SIGTERM' || signal === 'SIGKILL') {
+        finalize(new Error('Transcription cancelled by user.'));
         return;
       }
-      reject(new Error(stderr || stdout || `Command failed with exit code ${code}`));
+      if (code === 0) {
+        finalize(null, { stdout, stderr, code });
+        return;
+      }
+      finalize(new Error(stderr || stdout || `Command failed with exit code ${code}`));
     });
   });
 }
 
-async function runTranscriptionWithRetry(command, file) {
+async function runTranscriptionWithRetry(command, file, session = null) {
   let attemptCount = 0;
   while (true) {
     try {
-      return await runCommand(command, file);
+      return await runCommand(command, file, session);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!shouldRetryTranscriptionError(message, attemptCount)) {
+      if (session?.stopRequested || isCancellationMessage(message) || !shouldRetryTranscriptionError(message, attemptCount)) {
         throw error;
       }
 
@@ -502,6 +612,57 @@ ipcMain.handle('logs:save', async (_event, payload) => {
   return { path: logPath };
 });
 
+ipcMain.handle('window:minimize', async () => {
+  if (!mainWindow) {
+    return { ok: false };
+  }
+  mainWindow.minimize();
+  return { ok: true };
+});
+
+ipcMain.handle('window:toggle-maximize', async () => {
+  if (!mainWindow) {
+    return { ok: false, maximized: false };
+  }
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow.maximize();
+  }
+  return { ok: true, maximized: mainWindow.isMaximized() };
+});
+
+ipcMain.handle('window:close', async () => {
+  if (!mainWindow) {
+    return { ok: false };
+  }
+  mainWindow.close();
+  return { ok: true };
+});
+
+ipcMain.handle('engine:purge', async () => {
+  requestTranscriptionStop();
+  const userDataRoot = app.getPath('userData');
+  const writableRoot = getWritableEngineRoot(userDataRoot);
+  const removedTargets = [];
+
+  if (removePathRecursive(writableRoot)) {
+    removedTargets.push(writableRoot);
+  }
+  if (removePathRecursive(userDataRoot)) {
+    removedTargets.push(userDataRoot);
+  }
+
+  if (removedTargets.length > 0) {
+    sendLog('warn', '', `설치된 런타임과 모델 캐시를 삭제했습니다: ${removedTargets.join(', ')}`);
+  }
+  return {
+    removed: removedTargets.length > 0,
+    engineRoot: writableRoot,
+    removedTargets,
+  };
+});
+
 ipcMain.handle('engine:repair', async () => {
   const engineStatus = await ensureRuntimeReady();
   return {
@@ -512,13 +673,18 @@ ipcMain.handle('engine:repair', async () => {
   };
 });
 
+ipcMain.handle('transcription:stop', async () => {
+  return { stopped: requestTranscriptionStop() };
+});
+
 ipcMain.handle('transcription:start', async (_event, payload) => {
   const { files = [], outputDir, model = 'small', language = '', outputFormats = ['srt', 'txt'] } = payload || {};
   if (!files.length) {
     throw new Error('No files selected.');
   }
 
-  const engineStatus = await ensureRuntimeReady();
+  const session = createTranscriptionSession();
+  const engineStatus = await ensureRuntimeReady(session);
   const targetOutputDir = outputDir || getDefaultOutputDir();
   fs.mkdirSync(targetOutputDir, { recursive: true });
 
@@ -543,60 +709,92 @@ ipcMain.handle('transcription:start', async (_event, payload) => {
   });
 
   const results = [];
-  for (let index = 0; index < files.length; index += 1) {
-    const file = files[index];
-    const command = commands[index];
+  let cancelled = false;
 
-    sendLog('info', file.name, `처리 시작 (${index + 1}/${files.length})`);
-    sendProgress({
-      kind: 'status',
-      filePath: file.path,
-      fileName: file.name,
-      status: 'processing',
-      progress: 10,
-      current: index + 1,
-      total: files.length,
-    });
+  try {
+    for (let index = 0; index < files.length; index += 1) {
+      if (session.stopRequested) {
+        cancelled = true;
+        break;
+      }
 
-    try {
-      await runTranscriptionWithRetry(command, file);
-      const outputFiles = collectOutputFiles(targetOutputDir, file.name);
-      const result = {
+      const file = files[index];
+      const command = commands[index];
+
+      sendLog('info', file.name, `처리 시작 (${index + 1}/${files.length})`);
+      sendProgress({
         kind: 'status',
         filePath: file.path,
         fileName: file.name,
-        status: 'done',
-        progress: 100,
-        text: readTextIfPresent(outputFiles.txt || ''),
-        outputFiles,
-      };
-      results.push(result);
-      sendLog('success', file.name, '텍스트 추출 완료', {
-        eventType: 'result_ready',
-        outputFiles,
+        status: 'processing',
+        progress: 10,
+        current: index + 1,
+        total: files.length,
       });
-      sendProgress(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const result = {
-        kind: 'status',
-        filePath: file.path,
-        fileName: file.name,
-        status: 'error',
-        progress: 100,
-        error: message,
-      };
-      results.push(result);
-      sendLog('error', file.name, message);
-      sendProgress(result);
+
+      try {
+        await runTranscriptionWithRetry(command, file, session);
+        const outputFiles = collectOutputFiles(targetOutputDir, file.name);
+        const result = {
+          kind: 'status',
+          filePath: file.path,
+          fileName: file.name,
+          status: 'done',
+          progress: 100,
+          text: readTextIfPresent(outputFiles.txt || ''),
+          outputFiles,
+        };
+        results.push(result);
+        sendLog('success', file.name, '텍스트 추출 완료', {
+          eventType: 'result_ready',
+          outputFiles,
+        });
+        sendProgress(result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (session.stopRequested || isCancellationMessage(message)) {
+          cancelled = true;
+          const result = {
+            kind: 'status',
+            filePath: file.path,
+            fileName: file.name,
+            status: 'cancelled',
+            progress: 0,
+            error: '사용자가 추출을 중지했습니다.',
+          };
+          results.push(result);
+          sendLog('warn', file.name, '사용자가 추출을 중지했습니다.', {
+            eventType: 'cancelled',
+          });
+          sendProgress(result);
+          break;
+        }
+
+        const result = {
+          kind: 'status',
+          filePath: file.path,
+          fileName: file.name,
+          status: 'error',
+          progress: 100,
+          error: message,
+        };
+        results.push(result);
+        sendLog('error', file.name, message);
+        sendProgress(result);
+      }
     }
+  } finally {
+    clearTranscriptionSession(session);
   }
 
-  sendLog('info', '', `작업 종료: 완료 ${results.filter((item) => item.status === 'done').length}, 실패 ${results.filter((item) => item.status === 'error').length}`);
+  sendLog('info', '', cancelled
+    ? `작업 종료: 중지 ${results.filter((item) => item.status === 'cancelled').length}, 완료 ${results.filter((item) => item.status === 'done').length}, 실패 ${results.filter((item) => item.status === 'error').length}`
+    : `작업 종료: 완료 ${results.filter((item) => item.status === 'done').length}, 실패 ${results.filter((item) => item.status === 'error').length}`);
 
   return {
     outputDir: targetOutputDir,
     results,
+    cancelled,
   };
 });
 

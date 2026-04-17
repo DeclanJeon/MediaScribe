@@ -44,7 +44,7 @@ declare global {
     kind: 'status' | 'log';
     filePath?: string;
     fileName?: string;
-    status?: 'processing' | 'done' | 'error';
+    status?: 'processing' | 'done' | 'error' | 'cancelled';
     progress?: number;
     current?: number;
     total?: number;
@@ -82,9 +82,15 @@ declare global {
     }) => Promise<{
       outputDir: string;
       results: DesktopProgressEvent[];
+      cancelled?: boolean;
     }>;
+    stopTranscription: () => Promise<{ stopped: boolean }>;
     saveLogs: (payload: { outputDir: string; logs: DesktopLogEntry[] }) => Promise<{ path: string }>;
     repairEngine: () => Promise<{ started: boolean; engineRoot: string; pythonExists: boolean; moduleInstalled: boolean }>;
+    purgeInstallation: () => Promise<{ removed: boolean; engineRoot: string; removedTargets: string[] }>;
+    minimizeWindow: () => Promise<{ ok: boolean }>;
+    toggleMaximizeWindow: () => Promise<{ ok: boolean; maximized: boolean }>;
+    closeWindow: () => Promise<{ ok: boolean }>;
     openFolder: (targetPath: string) => Promise<{ ok: boolean }>;
     onTranscriptionProgress: (callback: (payload: DesktopProgressEvent) => void) => () => void;
   }

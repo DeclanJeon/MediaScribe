@@ -49,6 +49,6 @@ test('installer and repair scripts prime the default model non-fatally', () => {
   assert.match(runnerScript, /--prime-model \$ModelName/);
   assert.match(runnerScript, /continuing with transcription/);
 
-  assert.match(electronMain, /primeDefaultModelCache\(engineRoot, 'small'\)/);
+  assert.match(electronMain, /primeDefaultModelCache\(engineRoot, 'small', session\)/);
   assert.match(electronMain, /model_prime_failed/);
 });

@@ -21,13 +21,15 @@ test('buildProgressSnapshot returns total/completed/error counts and percent', (
     { status: 'processing', progress: 40 },
     { status: 'done', progress: 100 },
     { status: 'error', progress: 100 },
+    { status: 'cancelled', progress: 25 },
   ]);
 
-  assert.equal(snapshot.total, 4);
+  assert.equal(snapshot.total, 5);
   assert.equal(snapshot.completed, 1);
   assert.equal(snapshot.failed, 1);
+  assert.equal(snapshot.cancelled, 1);
   assert.equal(snapshot.active, 1);
-  assert.equal(snapshot.percent, 60);
+  assert.equal(snapshot.percent, 68);
 });
 
 test('createLogEntry keeps timestamped human-readable messages', () => {
