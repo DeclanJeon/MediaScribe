@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/DeclanJeon/MediaScribe/compare/v1.2.0...v1.3.0) (2026-04-17)
+
+### Features
+
+* simplify upload-first home screen ([5974ab4](https://github.com/DeclanJeon/MediaScribe/commit/5974ab44291f4d3d1b0c36e90e3cc17d21598682))
+
 ## [1.2.0](https://github.com/DeclanJeon/MediaScribe/compare/v1.1.2...v1.2.0) (2026-04-17)
 
 ### Features
