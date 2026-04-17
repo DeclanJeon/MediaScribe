@@ -358,12 +358,18 @@ async function runTranscriptionWithRetry(command, file) {
   }
 }
 
-ipcMain.handle('app:get-state', async () => ({
-  isPackaged: app.isPackaged,
-  outputDirectory: getDefaultOutputDir(),
-  engineRoot: getEngineRoot(),
-  engineStatus: getEngineStatus(),
-}));
+ipcMain.handle('app:get-state', async () => {
+  if (app.isPackaged) {
+    ensureEngineWorkspace();
+  }
+
+  return {
+    isPackaged: app.isPackaged,
+    outputDirectory: getDefaultOutputDir(),
+    engineRoot: getEngineRoot(),
+    engineStatus: getEngineStatus(),
+  };
+});
 
 ipcMain.handle('dialog:pick-files', async () => {
   const result = await dialog.showOpenDialog({

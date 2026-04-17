@@ -95,6 +95,7 @@ export default function Home() {
   const [isConvertingAll, setIsConvertingAll] = useState(false);
   const [isSavingLogs, setIsSavingLogs] = useState(false);
   const [isRepairingEngine, setIsRepairingEngine] = useState(false);
+  const autoRepairStartedRef = useRef(false);
   const [outputDir, setOutputDir] = useState('');
   const [model, setModel] = useState('small');
   const [language, setLanguage] = useState('');
@@ -112,9 +113,33 @@ export default function Home() {
     if (!window.mediaScribe) return;
 
     setIsDesktop(true);
-    window.mediaScribe.getAppState().then((state) => {
+    const mediaScribe = window.mediaScribe;
+    mediaScribe.getAppState().then((state) => {
       setOutputDir(state.outputDirectory);
       setEngineStatus(state.engineStatus);
+
+      const requiresRepair = !state.engineStatus?.ready || !state.engineStatus?.pythonExists || !state.engineStatus?.moduleInstalled;
+      if (requiresRepair && !autoRepairStartedRef.current) {
+        autoRepairStartedRef.current = true;
+        setIsRepairingEngine(true);
+        setStatusMessage('엔진을 자동 복구하는 중입니다...');
+        mediaScribe
+          .repairEngine()
+          .then((result) => {
+            setEngineStatus((prev) =>
+              prev
+                ? { ...prev, engineRoot: result.engineRoot, pythonExists: result.pythonExists, moduleInstalled: result.moduleInstalled, bootstrapAvailable: true }
+                : prev,
+            );
+            setToast({ message: `엔진 자동 복구를 완료했습니다: ${result.engineRoot}`, tone: 'info' });
+          })
+          .catch((error) => {
+            setToast({ message: error instanceof Error ? error.message : '엔진 자동 복구에 실패했습니다.', tone: 'error' });
+          })
+          .finally(() => {
+            setIsRepairingEngine(false);
+          });
+      }
     });
 
     const unsubscribe = window.mediaScribe.onTranscriptionProgress((payload) => {
