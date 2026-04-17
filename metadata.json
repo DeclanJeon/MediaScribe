@@ -1,0 +1,6 @@
+{
+  "name": "MediaScribe",
+  "description": "Convert video and audio files to text instantly.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

@@ -1,0 +1,40 @@
+# dependencies
+node_modules/
+
+# build outputs
+.next/
+out/
+dist/
+coverage/
+.semantic-release/
+release-notes.md
+
+# caches
+*.tsbuildinfo
+.eslintcache
+
+# environment files
+.env*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# local debug artifacts
+builder-debug.yml
+nul
+*.png
+capture_desktop.ps1
+launch_and_capture.ps1
+inspect_gui.py
+inspect_process_tree.py
