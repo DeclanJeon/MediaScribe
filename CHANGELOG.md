@@ -1,3 +1,9 @@
+## [1.0.2](https://github.com/DeclanJeon/MediaScribe/compare/v1.0.1...v1.0.2) (2026-04-17)
+
+### Bug Fixes
+
+* disable electron-builder publishing in release assets ([82681af](https://github.com/DeclanJeon/MediaScribe/commit/82681af0523e7974320b0f9903bbec27bc2632f5))
+
 ## [1.0.1](https://github.com/DeclanJeon/MediaScribe/compare/v1.0.0...v1.0.1) (2026-04-17)
 
 ### Bug Fixes
