@@ -73,8 +73,8 @@ function getReadinessTone(isReady: boolean, isRepairing: boolean) {
 }
 
 function getReadinessLabel(isReady: boolean, isRepairing: boolean) {
-  if (isRepairing) return '자동 복구 중';
-  return isReady ? '준비 완료' : '복구 필요';
+  if (isRepairing) return '준비중';
+  return isReady ? '준비 완료' : '준비중';
 }
 
 function playCompletionTone(isError: boolean) {
@@ -112,7 +112,7 @@ export default function Home() {
   const [outputDir, setOutputDir] = useState('');
   const [model, setModel] = useState('small');
   const [language, setLanguage] = useState('');
-  const [statusMessage, setStatusMessage] = useState('엔진 상태를 확인한 뒤 파일을 추가하세요.');
+  const [statusMessage, setStatusMessage] = useState('파일을 추가하세요.');
   const [outputFormats, setOutputFormats] = useState<string[]>(['srt', 'txt']);
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const [engineStatus, setEngineStatus] = useState<DesktopEngineStatus | null>(null);
@@ -135,7 +135,7 @@ export default function Home() {
       if (requiresRepair && !autoRepairStartedRef.current) {
         autoRepairStartedRef.current = true;
         setIsRepairingEngine(true);
-        setStatusMessage('첫 실행 준비가 필요합니다. 엔진을 자동 복구하는 중입니다...');
+        setStatusMessage('준비중... 필요한 파일을 다운로드하고 있습니다. 잠시만 기다려 주세요.');
         mediaScribe
           .repairEngine()
           .then((result) => {
@@ -153,7 +153,7 @@ export default function Home() {
             setIsRepairingEngine(false);
           });
       } else {
-        setStatusMessage('엔진과 모델 준비가 끝났습니다. 파일을 추가하면 바로 전사를 시작할 수 있습니다.');
+        setStatusMessage('파일을 올리면 바로 추출을 시작합니다.');
       }
     });
 
@@ -250,32 +250,35 @@ export default function Home() {
   const needsRepair = isDesktop && !offlineReady;
   const readinessLabel = getReadinessLabel(offlineReady, isRepairingEngine);
   const readinessTone = getReadinessTone(offlineReady, isRepairingEngine);
-  const readinessCards = [
-    {
-      label: '엔진',
-      value: readinessLabel,
-      detail: !isDesktop
-        ? '데스크톱 앱에서 로컬 전사를 사용할 수 있습니다.'
-        : engineReady
-          ? 'Whisper 엔진이 준비되어 있습니다.'
-          : 'Python 런타임 또는 의존성 복구가 필요합니다.',
-      tone: readinessTone,
-    },
-    {
-      label: '모델',
-      value: model,
-      detail: '선택한 모델로 전사를 시작합니다. 필요하면 언제든 바꿀 수 있습니다.',
-      tone: 'info' as const,
-    },
-    {
-      label: '오프라인 준비',
-      value: offlineReady ? '가능' : '준비 중',
-      detail: offlineReady
-        ? '엔진이 준비되어 네트워크 없이도 전사를 실행할 수 있습니다.'
-        : '자동 복구가 끝나면 오프라인 전사 준비가 완료됩니다.',
-      tone: offlineReady ? ('success' as const) : ('error' as const),
-    },
-  ];
+  const primaryActionLabel = isConvertingAll
+    ? '추출 중...'
+    : files.length > 0
+      ? '추출 시작'
+      : '파일 업로드';
+  const primaryActionHint = files.length > 0
+    ? `${files.length}개 파일 준비됨`
+    : '음성·영상 파일을 추가하세요.';
+  const runtimeBadgeLabel = isRepairingEngine
+    ? '준비중'
+    : offlineReady
+      ? '준비 완료'
+      : '준비중';
+  const runtimeBadgeTone = isRepairingEngine ? 'info' : offlineReady ? 'success' : 'error';
+  const runtimeBadgeText = isRepairingEngine
+    ? '필요한 파일을 다운로드하는 중입니다. 잠시만 기다려 주세요.'
+    : offlineReady
+      ? '파일을 올리면 바로 추출을 시작합니다.'
+      : '엔진을 준비하는 중입니다.';
+  const activeLiveLines = activeFile?.liveTranscript.slice(-8) ?? [];
+  const showLivePanel = Boolean(isRepairingEngine || activeFile || isConvertingAll);
+
+  const handlePrimaryAction = async () => {
+    if (files.length === 0) {
+      await handleChooseFiles();
+      return;
+    }
+    await handleConvertAll();
+  };
 
   const addFiles = (pickedFiles: DesktopPickedFile[]) => {
     const supported = pickedFiles.filter((file) => file.type !== 'unsupported');
@@ -431,307 +434,128 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
-        <div className="grid gap-6 xl:grid-cols-[1.4fr_0.95fr]">
-          <section className="space-y-8">
-            <div className="space-y-5">
-              <motion.div initial={{ opacity: 0, y: -18 }} animate={{ opacity: 1, y: 0 }} className={`rounded-[32px] border p-6 sm:p-8 shadow-2xl backdrop-blur-xl ${needsRepair ? 'border-amber-400/20 bg-amber-500/10' : 'border-white/10 bg-white/5'}`}>
-                <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="max-w-2xl">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.24em] text-slate-300">
-                      <Sparkles className="w-4 h-4 text-indigo-300" />
-                      MediaScribe · 준비 상태 확인
-                    </div>
-                    <h2 className="mt-4 text-3xl md:text-4xl font-semibold tracking-tight text-white">
-                      엔진, 모델, 오프라인 준비 상태를 먼저 확인하세요.
-                    </h2>
-                    <p className="mt-4 max-w-2xl text-base md:text-lg leading-8 text-slate-300">
-                      첫 실행이라면 로컬 엔진과 Python 런타임을 자동으로 점검합니다. 준비가 끝나면 인터넷 없이도 전사를 시작할 수 있고, 선택한 모델은 그대로 유지됩니다.
-                    </p>
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-6">
+        <motion.section initial={{ opacity: 0, y: -18 }} animate={{ opacity: 1, y: 0 }} className={`rounded-[32px] border p-6 sm:p-8 shadow-2xl backdrop-blur-xl ${needsRepair ? 'border-amber-400/20 bg-amber-500/10' : 'border-white/10 bg-white/5'}`}>
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl space-y-5">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.24em] text-slate-300">
+                <Sparkles className="w-4 h-4 text-indigo-300" />
+                MediaScribe
+              </div>
+              <div className="space-y-3">
+                <h2 className="text-3xl md:text-4xl font-semibold tracking-tight text-white">파일 하나만 올리면 됩니다.</h2>
+                <p className="max-w-2xl text-base md:text-lg leading-8 text-slate-300">
+                  영상이나 음성 파일을 넣으면 텍스트로 정리합니다. 엔진이 아직 준비되지 않았다면 준비중으로 보여주고, 파일을 다운로드하는 동안 잠시만 기다려 달라고 안내합니다.
+                </p>
+              </div>
 
-                    <div className="mt-5 flex flex-wrap gap-3">
-                      <button onClick={handleRepairEngine} disabled={isRepairingEngine} className={`inline-flex items-center rounded-full px-5 py-3 text-sm font-semibold transition-all ${isRepairingEngine ? 'cursor-not-allowed bg-white/10 text-slate-500' : needsRepair ? 'bg-amber-400 text-slate-950 shadow-lg shadow-amber-400/20 hover:bg-amber-300' : 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-400 active:scale-[0.98]'}`}>
-                        {isRepairingEngine ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wrench className="mr-2 h-4 w-4" />}
-                        {isRepairingEngine ? '복구 진행 중...' : needsRepair ? '자동 복구 실행' : '엔진 다시 점검'}
-                      </button>
-                      <button onClick={handleChooseFiles} className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 transition-colors hover:bg-white/10">
-                        파일 미리 담기
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </button>
-                    </div>
+              <div className="flex flex-wrap gap-3">
+                <button onClick={handlePrimaryAction} disabled={!isDesktop || isConvertingAll || isRepairingEngine} className={`inline-flex items-center rounded-full px-5 py-3 text-sm font-semibold transition-all ${(!isDesktop || isConvertingAll || isRepairingEngine) ? 'cursor-not-allowed bg-white/10 text-slate-500' : 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-400 active:scale-[0.98]'}`}>
+                  {isConvertingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
+                  {primaryActionLabel}
+                </button>
+                <button onClick={handleChooseOutputDir} className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 transition-colors hover:bg-white/10">
+                  <FolderOpen className="mr-2 h-4 w-4" /> 출력 폴더
+                </button>
+              </div>
 
-                    <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-slate-300">
-                      <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${needsRepair ? 'border-amber-400/30 bg-amber-400/10 text-amber-100' : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'}`}>
-                        {needsRepair ? <AlertTriangle className="h-4 w-4" /> : <BadgeCheck className="h-4 w-4" />}
-                        {needsRepair ? '복구가 끝나면 전체 추출 시작이 활성화됩니다.' : '준비 완료: 파일을 추가하면 바로 추출할 수 있습니다.'}
-                      </span>
-                      <span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-cyan-100">
-                        <CloudOff className="h-4 w-4" />
-                        오프라인 처리 준비
-                      </span>
-                    </div>
-                  </div>
+              <div className="flex flex-wrap items-center gap-2 text-sm text-slate-300">
+                <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${runtimeBadgeTone === 'success' ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100' : runtimeBadgeTone === 'error' ? 'border-amber-400/30 bg-amber-400/10 text-amber-100' : 'border-cyan-400/20 bg-cyan-500/10 text-cyan-100'}`}>
+                  {runtimeBadgeTone === 'success' ? <BadgeCheck className="h-4 w-4" /> : runtimeBadgeTone === 'error' ? <AlertTriangle className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
+                  런타임: {runtimeBadgeLabel}
+                </span>
+                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">파일 {files.length}개</span>
+                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">출력 형식 {outputFormats.join(', ')}</span>
+                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">모델 {model}</span>
+              </div>
 
-                  <div className="grid gap-3 sm:grid-cols-3 lg:w-[440px] lg:grid-cols-1 xl:grid-cols-3">
-                    {readinessCards.map((card) => (
-                      <div key={card.label} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
-                        <p className="text-[11px] uppercase tracking-[0.26em] text-slate-500">{card.label}</p>
-                        <p className={`mt-2 text-lg font-semibold ${card.tone === 'success' ? 'text-emerald-200' : card.tone === 'error' ? 'text-amber-100' : 'text-white'}`}>{card.value}</p>
-                        <p className="mt-2 text-sm leading-6 text-slate-400">{card.detail}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </motion.div>
-
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-                <div
-                  className={`relative rounded-[28px] border border-white/10 bg-white/5 p-8 text-center shadow-2xl backdrop-blur-xl transition-all duration-200 ease-out ${isDragging ? 'border-indigo-400/60 bg-indigo-500/10 scale-[1.01]' : 'hover:border-white/20 hover:bg-white/[0.07]'}`}
-                  onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={handleDrop}
-                >
-                  <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/80 text-slate-200">
-                    <UploadCloud className="w-7 h-7" />
-                  </div>
-                  <h3 className="text-2xl font-semibold tracking-tight mb-2 text-white">파일을 끌어놓거나 선택해서 시작하세요</h3>
-                  <p className="mx-auto mb-6 max-w-3xl text-slate-400 leading-7">
-                    MP3, WAV, M4A, MP4, MKV, WEBM 등 지원 포맷을 처리합니다. 로컬에서 실행되므로 업로드 대기 없이 전사가 진행되고, {needsRepair ? '복구가 끝나는 즉시' : '준비가 이미 끝난 상태에서'} 시작할 수 있습니다.
-                  </p>
-
-                  <div className="mb-6 grid gap-3 text-left md:grid-cols-3">
-                    {[
-                      { title: '1. 상태 확인', text: needsRepair ? '오른쪽에서 엔진 상태를 확인한 뒤 자동 복구를 눌러 주세요.' : '엔진과 오프라인 준비 상태가 모두 초록색인지 확인하세요.' },
-                      { title: '2. 파일 추가', text: '음성 또는 영상 파일을 끌어놓거나 파일 선택으로 대기열에 넣으세요.' },
-                      { title: '3. 전체 추출 시작', text: '모델과 출력 형식을 확인한 뒤 전체 추출 시작 버튼을 누르세요.' },
-                    ].map((step) => (
-                      <div key={step.title} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
-                        <p className="text-sm font-semibold text-white">{step.title}</p>
-                        <p className="mt-2 text-sm leading-6 text-slate-400">{step.text}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-center gap-3">
-                    <button onClick={handleChooseFiles} className="inline-flex items-center rounded-full bg-indigo-500 px-6 py-3 font-semibold text-white shadow-lg shadow-indigo-500/20 transition-all hover:bg-indigo-400 active:scale-[0.98]">
-                      파일 선택
-                    </button>
-                    <button onClick={handleRepairEngine} disabled={isRepairingEngine} className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-6 py-3 font-semibold text-slate-100 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50">
-                      {isRepairingEngine ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wrench className="mr-2 h-4 w-4" />}
-                      {isRepairingEngine ? '복구 중...' : '자동 복구 다시 실행'}
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
+              <p className="text-sm text-slate-400">{primaryActionHint}</p>
+              <p className="text-sm text-slate-400">{runtimeBadgeText}</p>
             </div>
 
-            <div className="rounded-[28px] border border-white/10 bg-white/5 p-6 space-y-5 shadow-2xl backdrop-blur-xl">
-              <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div>
-                  <h3 className="text-lg font-semibold text-white">요약 진행률</h3>
-                  <p className="mt-1 text-sm text-slate-400">{statusMessage}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-3xl font-semibold tracking-tight text-white">{summary.percent}%</p>
-                  <p className="text-sm text-slate-400">완료 {summary.completed} / {summary.total} · 실패 {summary.failed}</p>
-                </div>
+            <div className="grid gap-3 sm:grid-cols-3 lg:w-[420px] lg:grid-cols-1 xl:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                <p className="text-[11px] uppercase tracking-[0.26em] text-slate-500">준비 상태</p>
+                <p className="mt-2 text-lg font-semibold text-white">{readinessLabel}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-400">{needsRepair ? '준비가 끝나면 바로 추출을 시작합니다.' : '파일을 올리면 바로 진행할 수 있습니다.'}</p>
               </div>
-              <div className="h-3 overflow-hidden rounded-full bg-white/10">
-                <div className="h-full rounded-full bg-gradient-to-r from-indigo-400 via-indigo-500 to-cyan-400 transition-all duration-300" style={{ width: `${summary.percent}%` }} />
+              <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                <p className="text-[11px] uppercase tracking-[0.26em] text-slate-500">현재 작업</p>
+                <p className="mt-2 text-lg font-semibold text-white">{activeFile ? activeFile.name : '대기 중'}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-400">{statusMessage}</p>
               </div>
-            </div>
-
-            <div className="rounded-[28px] border border-white/10 bg-[#0b1220] p-6 space-y-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <div>
-                  <h3 className="text-lg font-semibold text-white">라이브 상태</h3>
-                  <p className="text-sm text-slate-400">현재 단계와 실시간 로그를 모아 보여줍니다.</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-slate-400">현재 단계</p>
-                  <p className="text-base font-semibold text-white">{describePhase(activeFile ?? { status: summary.active > 0 ? 'processing' : summary.failed > 0 ? 'error' : 'done' })}</p>
-                </div>
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3">
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">현재 작업</p>
-                  {activeFile ? (
-                    <>
-                      <p className="font-medium text-white break-all">{activeFile.name}</p>
-                      <p className="text-sm text-slate-300">{describePhase(activeFile)}</p>
-                      {activeDetectedLanguage && (
-                        <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-100 w-fit">
-                          <span className="font-semibold uppercase">감지 언어 {activeDetectedLanguage.code}</span>
-                          {activeDetectedLanguage.probability != null && <span className="text-cyan-200/90">신뢰도 {(Number(activeDetectedLanguage.probability) * 100).toFixed(1)}%</span>}
-                        </div>
-                      )}
-                      <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-                        <div className="h-full bg-cyan-400 rounded-full transition-all duration-300" style={{ width: `${activeFile.progress}%` }} />
-                      </div>
-                      <p className="text-xs text-slate-400">{activeFile.progress}% · 재시도 {activeFile.retryCount ?? 0}회 · 현재 단계 {formatElapsedSeconds(phaseElapsedSeconds)}</p>
-                      <div className="rounded-2xl bg-slate-950/80 border border-slate-800 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 mb-2">실시간 추출 텍스트</p>
-                        <div className="max-h-[180px] overflow-y-auto space-y-2 text-sm leading-6 text-slate-100">
-                          {activeFile.liveTranscript.length === 0 ? (
-                            <p className="text-slate-500">아직 추출된 텍스트가 없습니다.</p>
-                          ) : (
-                            activeFile.liveTranscript.slice(-12).map((line, index) => (
-                              <p key={`${activeFile.id}-live-${index}`} className="border-b border-slate-800/70 pb-2 break-words">{line}</p>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-sm text-slate-400">현재 실행 중인 파일이 없습니다. 파일을 추가하면 여기에서 진행률과 추출 문장이 살아납니다.</p>
-                  )}
-                </div>
-
-                <div className="rounded-2xl bg-slate-900/70 border border-slate-800 p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-3">실시간 출력</p>
-                  <div className="space-y-2 font-mono text-xs leading-6 max-h-[240px] overflow-y-auto">
-                    {latestLines.length === 0 ? (
-                      <p className="text-slate-500">로그가 아직 없습니다. 변환을 시작하면 복구, 전사, 저장 기록이 순서대로 쌓입니다.</p>
-                    ) : (
-                      latestLines.map((line, index) => (
-                        <div key={`${index}-${line.slice(0, 20)}`} className="border-b border-slate-800/60 pb-2 text-slate-200 break-all">
-                          {line}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                <p className="text-[11px] uppercase tracking-[0.26em] text-slate-500">출력</p>
+                <p className="mt-2 text-lg font-semibold text-white">{outputDir ? '지정됨' : '미지정'}</p>
+                <p className="mt-2 break-all text-sm leading-6 text-slate-400">{outputDir || '결과를 저장할 폴더를 선택하세요.'}</p>
               </div>
             </div>
+          </div>
+        </motion.section>
 
-            <AnimatePresence>
-              {files.length > 0 && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-6">
-                  <div className="flex items-center justify-between gap-4 flex-wrap">
-                    <div>
-                      <h3 className="text-lg font-medium text-white">작업 대기열 ({files.length})</h3>
-                      <p className="text-sm text-slate-400">처리 중 {summary.active} · 완료 {summary.completed} · 실패 {summary.failed}</p>
-                      <p className="mt-1 text-xs text-slate-500">지원되는 파일을 추가하면 작업 대기열과 진행률이 여기에 표시됩니다.</p>
-                    </div>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <button onClick={() => window.mediaScribe?.openFolder(outputDir)} className="flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2.5 font-medium text-slate-100 hover:bg-white/10">
-                        <FolderOpen className="w-4 h-4 mr-2" /> 출력 폴더 열기
-                      </button>
-                      <button onClick={handleConvertAll} disabled={isConvertingAll || !isDesktop || !engineStatus?.ready} className={`flex items-center rounded-full px-5 py-2.5 font-medium transition-all ${(isConvertingAll || !isDesktop || !engineStatus?.ready) ? 'cursor-not-allowed bg-white/10 text-slate-500' : 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-400 active:scale-[0.98]'}`}>
-                        {isConvertingAll ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> 변환 중...</> : <><FileText className="w-4 h-4 mr-2" /> 전체 추출 시작</>}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4">
-                    {files.map((file) => (
-                      <motion.div key={file.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-xl backdrop-blur-xl">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex min-w-0 items-center space-x-4">
-                            <div className={`rounded-xl p-3 ${file.type === 'audio' ? 'bg-amber-500/10 text-amber-200' : 'bg-indigo-500/10 text-indigo-200'}`}>
-                              {file.type === 'audio' ? <FileAudio className="w-6 h-6" /> : <FileVideo className="w-6 h-6" />}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="truncate font-medium text-white">{file.name}</p>
-                              <p className="text-sm text-slate-400">{formatSize(file.size)}</p>
-                              {file.phase === 'installing_runtime' && <p className="mt-1 text-xs text-amber-300">Python 런타임 자동 설치 중...</p>}
-                              {file.phase === 'installing_dependency' && <p className="mt-1 text-xs text-amber-300">faster-whisper 자동 설치 중...</p>}
-                              {file.phase === 'retrying' && <p className="mt-1 text-xs text-cyan-300">자동 복구 후 재시도 중 ({file.retryCount ?? 1}회)</p>}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className={`rounded-full px-3 py-1 text-sm font-medium ${file.status === 'done' ? 'bg-emerald-500/10 text-emerald-200' : file.status === 'processing' ? 'bg-indigo-500/10 text-indigo-200' : file.status === 'error' ? 'bg-rose-500/10 text-rose-200' : 'bg-white/5 text-slate-400'}`}>
-                              {statusChip(file.status)}
-                            </span>
-                            <button onClick={() => removeFile(file.id)} disabled={file.status === 'processing'} className="rounded-full p-2 text-slate-500 transition-colors hover:bg-rose-500/10 hover:text-rose-200 disabled:opacity-50">
-                              <X className="w-5 h-5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 space-y-2">
-                          <div className="flex items-center justify-between text-xs text-slate-400">
-                            <span>{file.status === 'processing' ? '세부 진행률' : '처리 상태'}</span>
-                            <span>{file.progress}%</span>
-                          </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                            <div className={`h-full rounded-full transition-all duration-300 ${file.status === 'error' ? 'bg-rose-500' : file.status === 'done' ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${file.progress}%` }} />
-                          </div>
-                        </div>
-
-                        {file.status === 'done' && file.result && (
-                          <div className="mt-4 space-y-3">
-                            <div className="relative group rounded-xl border border-white/10 bg-slate-950/80 p-4 text-sm leading-relaxed text-slate-200">
-                              <pre className="whitespace-pre-wrap break-words font-sans">{file.result}</pre>
-                              <button onClick={() => navigator.clipboard.writeText(file.result || '')} className="absolute right-3 top-3 rounded-lg bg-white/5 p-2 text-slate-400 opacity-0 transition-opacity hover:text-white group-hover:opacity-100" title="Copy to clipboard">
-                                <Copy className="w-4 h-4" />
-                              </button>
-                            </div>
-                            <div className="flex flex-wrap gap-2 text-sm">
-                              {file.outputs?.txt && <button onClick={() => window.mediaScribe?.openFolder(file.outputs?.txt || '')} className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-slate-100 hover:bg-white/10">TXT 위치 열기</button>}
-                              {file.outputs?.srt && <button onClick={() => window.mediaScribe?.openFolder(file.outputs?.srt || '')} className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-slate-100 hover:bg-white/10">SRT 위치 열기</button>}
-                            </div>
-                          </div>
-                        )}
-
-                        {file.status === 'error' && file.error && <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/10 p-4 text-sm whitespace-pre-wrap text-rose-100">{file.error}</div>}
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </section>
-
-          <aside className="space-y-6">
-            <div className="sticky top-6 space-y-5 rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur-xl">
+        <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className={`relative rounded-[28px] border border-white/10 bg-white/5 p-7 shadow-2xl backdrop-blur-xl transition-all duration-200 ease-out ${isDragging ? 'border-indigo-400/60 bg-indigo-500/10 scale-[1.01]' : 'hover:border-white/20 hover:bg-white/[0.07]'}`} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop}>
+          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/80 text-slate-200">
+                <UploadCloud className="w-6 h-6" />
+              </div>
               <div>
-                <h3 className="text-lg font-semibold text-white">런타임 상태</h3>
-                <p className="mt-1 text-sm text-slate-400">로컬 엔진, Python 런타임, 출력 위치를 한눈에 확인합니다.</p>
+                <h3 className="text-xl font-semibold tracking-tight text-white">{files.length > 0 ? '파일이 준비되었습니다.' : '파일을 끌어놓거나 버튼으로 추가하세요.'}</h3>
+                <p className="mt-1 text-sm text-slate-400">지원되는 음성·영상 파일만 처리합니다.</p>
               </div>
+            </div>
+            <button onClick={handlePrimaryAction} disabled={!isDesktop || isConvertingAll || isRepairingEngine} className={`inline-flex items-center rounded-full px-5 py-3 text-sm font-semibold transition-all ${(!isDesktop || isConvertingAll || isRepairingEngine) ? 'cursor-not-allowed bg-white/10 text-slate-500' : 'bg-white/5 text-slate-100 hover:bg-white/10'}`}>
+              {files.length > 0 ? '추출 시작' : '파일 업로드'}
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </button>
+          </div>
 
-              <div className={`rounded-2xl border p-4 ${offlineReady ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100' : 'border-amber-500/20 bg-amber-500/10 text-amber-100'}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">엔진 상태: {readinessLabel}</p>
-                    <p className="mt-1 text-xs">현재 모델: {model}</p>
-                    <p className="mt-1 text-xs">faster-whisper: {moduleReady ? '설치됨' : '미설치 또는 손상됨'}</p>
-                    <p className="mt-1 text-xs">Python 런타임: {runtimeReady ? '확인됨' : '미설치 또는 초기화 필요'}</p>
-                    <p className="mt-1 break-all text-xs opacity-80">{engineStatus?.runnerScript || '엔진 정보 확인 중...'}</p>
-                  </div>
-                  <button onClick={handleRepairEngine} disabled={isRepairingEngine} className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-slate-100 transition-colors hover:bg-white/10 disabled:opacity-50">
-                    {isRepairingEngine ? '실행 중...' : <span className="inline-flex items-center gap-2"><Wrench className="w-4 h-4" /> 자동 복구</span>}
-                  </button>
-                </div>
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
+            {[
+              { title: '1. 파일 추가', text: '드래그하거나 파일 선택으로 넣습니다.' },
+              { title: '2. 추출 시작', text: '버튼을 누르면 바로 텍스트 추출이 진행됩니다.' },
+              { title: '3. 결과 확인', text: '완료되면 TXT와 SRT 위치를 바로 열 수 있습니다.' },
+            ].map((step) => (
+              <div key={step.title} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                <p className="text-sm font-semibold text-white">{step.title}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-400">{step.text}</p>
               </div>
+            ))}
+          </div>
+        </motion.section>
 
-              <div className="space-y-2">
+        <details className="group rounded-[28px] border border-white/10 bg-white/5 shadow-2xl backdrop-blur-xl">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-4">
+            <div>
+              <p className="text-sm font-semibold text-white">추가 설정</p>
+              <p className="mt-1 text-xs text-slate-400">기본값으로 충분하면 접어두고 사용하세요.</p>
+            </div>
+            <div className="text-xs text-slate-400 transition-transform group-open:rotate-180">▾</div>
+          </summary>
+          <div className="border-t border-white/10 px-6 py-5">
+            <div className="grid gap-4 lg:grid-cols-4">
+              <div className="space-y-2 lg:col-span-2">
                 <label className="text-sm font-medium text-slate-300">출력 폴더</label>
                 <div className="flex gap-2">
                   <input value={outputDir} onChange={(event) => setOutputDir(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-indigo-400" />
                   <button onClick={handleChooseOutputDir} className="rounded-2xl border border-white/10 bg-white/5 px-4 text-slate-100 hover:bg-white/10"><FolderOpen className="w-4 h-4" /></button>
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-300">모델</label>
-                  <select value={model} onChange={(event) => setModel(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none focus:border-indigo-400">
-                    {MODEL_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-300">언어</label>
-                  <select value={language} onChange={(event) => setLanguage(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none focus:border-indigo-400">
-                    {LANGUAGE_OPTIONS.map((option) => <option key={option.value || 'auto'} value={option.value}>{option.label}</option>)}
-                  </select>
-                </div>
-              </div>
-
               <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">모델</label>
+                <select value={model} onChange={(event) => setModel(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none focus:border-indigo-400">
+                  {MODEL_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">언어</label>
+                <select value={language} onChange={(event) => setLanguage(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none focus:border-indigo-400">
+                  {LANGUAGE_OPTIONS.map((option) => <option key={option.value || 'auto'} value={option.value}>{option.label}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2 lg:col-span-4">
                 <label className="text-sm font-medium text-slate-300">출력 형식</label>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                   {(['txt', 'srt'] as const).map((format) => (
                     <button key={format} onClick={() => toggleFormat(format)} className={`rounded-full border px-4 py-2 text-sm transition-colors ${outputFormats.includes(format) ? 'border-indigo-400/30 bg-indigo-500/15 text-white' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'}`}>
                       {format.toUpperCase()}
@@ -739,32 +563,156 @@ export default function Home() {
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        </details>
 
-              <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm leading-6 text-slate-300">
-                <p className="mb-2 font-medium text-white">현재 상태</p>
-                <p>{statusMessage}</p>
-                {latestDetectedLanguage && (
-                  <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200">
-                    <span className="font-semibold uppercase">감지 언어 {latestDetectedLanguage.code}</span>
-                    {latestDetectedLanguage.probability != null && <span className="text-slate-400">신뢰도 {(Number(latestDetectedLanguage.probability) * 100).toFixed(1)}%</span>}
-                    {latestDetectedLanguage.fileName && <span className="text-slate-500">· {latestDetectedLanguage.fileName}</span>}
+        {files.length > 0 && (
+          <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur-xl">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h3 className="text-lg font-semibold text-white">대기열</h3>
+                <p className="text-sm text-slate-400">{summary.completed}개 완료 · {summary.active}개 진행 중 · {summary.failed}개 실패</p>
+              </div>
+              <button onClick={handleConvertAll} disabled={isConvertingAll || !isDesktop || !engineStatus?.ready} className={`inline-flex items-center rounded-full px-5 py-2.5 font-medium transition-all ${(isConvertingAll || !isDesktop || !engineStatus?.ready) ? 'cursor-not-allowed bg-white/10 text-slate-500' : 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-400 active:scale-[0.98]'}`}>
+                {isConvertingAll ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> 추출 중...</> : <><UploadCloud className="w-4 h-4 mr-2" /> 추출 시작</>}
+              </button>
+            </div>
+
+            <div className="grid gap-4">
+              {files.map((file) => (
+                <motion.article key={file.id} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="rounded-2xl border border-white/10 bg-slate-950/70 p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex min-w-0 items-center gap-4">
+                      <div className={`rounded-xl p-3 ${file.type === 'audio' ? 'bg-amber-500/10 text-amber-200' : 'bg-indigo-500/10 text-indigo-200'}`}>
+                        {file.type === 'audio' ? <FileAudio className="w-6 h-6" /> : <FileVideo className="w-6 h-6" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-white">{file.name}</p>
+                        <p className="text-sm text-slate-400">{formatSize(file.size)}</p>
+                        {file.phase === 'installing_runtime' && <p className="mt-1 text-xs text-amber-300">준비중...</p>}
+                        {file.phase === 'installing_dependency' && <p className="mt-1 text-xs text-amber-300">필요한 파일을 다운로드하는 중입니다.</p>}
+                        {file.phase === 'retrying' && <p className="mt-1 text-xs text-cyan-300">다시 시도하는 중 ({file.retryCount ?? 1}회)</p>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`rounded-full px-3 py-1 text-sm font-medium ${file.status === 'done' ? 'bg-emerald-500/10 text-emerald-200' : file.status === 'processing' ? 'bg-indigo-500/10 text-indigo-200' : file.status === 'error' ? 'bg-rose-500/10 text-rose-200' : 'bg-white/5 text-slate-400'}`}>
+                        {statusChip(file.status)}
+                      </span>
+                      <button onClick={() => removeFile(file.id)} disabled={file.status === 'processing'} className="rounded-full p-2 text-slate-500 transition-colors hover:bg-rose-500/10 hover:text-rose-200 disabled:opacity-50">
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
+
+                  <div className="mt-4 space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span>{file.status === 'processing' ? '진행률' : '대기/완료 상태'}</span>
+                      <span>{file.progress}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                      <div className={`h-full rounded-full transition-all duration-300 ${file.status === 'error' ? 'bg-rose-500' : file.status === 'done' ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${file.progress}%` }} />
+                    </div>
+                  </div>
+
+                  {file.status === 'done' && file.result && (
+                    <div className="mt-4 space-y-3">
+                      <div className="relative group rounded-xl border border-white/10 bg-slate-950/80 p-4 text-sm leading-relaxed text-slate-200">
+                        <pre className="whitespace-pre-wrap break-words font-sans">{file.result}</pre>
+                        <button onClick={() => navigator.clipboard.writeText(file.result || '')} className="absolute right-3 top-3 rounded-lg bg-white/5 p-2 text-slate-400 opacity-0 transition-opacity hover:text-white group-hover:opacity-100" title="Copy to clipboard">
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-sm">
+                        {file.outputs?.txt && <button onClick={() => window.mediaScribe?.openFolder(file.outputs?.txt || '')} className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-slate-100 hover:bg-white/10">TXT 위치 열기</button>}
+                        {file.outputs?.srt && <button onClick={() => window.mediaScribe?.openFolder(file.outputs?.srt || '')} className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-slate-100 hover:bg-white/10">SRT 위치 열기</button>}
+                      </div>
+                    </div>
+                  )}
+
+                  {file.status === 'error' && file.error && <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/10 p-4 text-sm whitespace-pre-wrap text-rose-100">{file.error}</div>}
+                </motion.article>
+              ))}
+            </div>
+          </motion.section>
+        )}
+
+        {showLivePanel && (
+          <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-[28px] border border-white/10 bg-[#0b1220] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <h3 className="text-lg font-semibold text-white">진행 상태</h3>
+                <p className="mt-1 text-sm text-slate-400">{statusMessage}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-slate-400">현재 단계</p>
+                <p className="text-base font-semibold text-white">{describePhase(activeFile ?? { status: summary.active > 0 ? 'processing' : summary.failed > 0 ? 'error' : 'done' })}</p>
+                <p className="mt-1 text-xs text-slate-500">{formatElapsedSeconds(phaseElapsedSeconds)}</p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3">
+                <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">현재 작업</p>
+                {activeFile ? (
+                  <>
+                    <p className="font-medium text-white break-all">{activeFile.name}</p>
+                    <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                      <div className="h-full bg-cyan-400 rounded-full transition-all duration-300" style={{ width: `${activeFile.progress}%` }} />
+                    </div>
+                    <p className="text-xs text-slate-400">{activeFile.progress}% · 재시도 {activeFile.retryCount ?? 0}회</p>
+                    {activeDetectedLanguage && (
+                      <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-100 w-fit">
+                        <span className="font-semibold uppercase">감지 언어 {activeDetectedLanguage.code}</span>
+                        {activeDetectedLanguage.probability != null && <span className="text-cyan-200/90">신뢰도 {(Number(activeDetectedLanguage.probability) * 100).toFixed(1)}%</span>}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium text-white">{runtimeBadgeLabel}</p>
+                    <p className="text-sm leading-6 text-slate-400">{runtimeBadgeText}</p>
+                  </>
                 )}
               </div>
 
-              <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/5">
-                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                    <ScrollText className="w-4 h-4" /> 상세 로그
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={handleSaveLogs} disabled={isSavingLogs || logs.length === 0} className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white disabled:opacity-40">
-                      <Save className="w-3.5 h-3.5" /> {isSavingLogs ? '저장 중...' : '로그 저장'}
-                    </button>
-                    <button onClick={() => setLogs([])} className="text-xs text-slate-400 hover:text-white">비우기</button>
-                  </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-4">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 mb-2">실시간 추출 텍스트</p>
+                <div className="max-h-[220px] overflow-y-auto space-y-2 text-sm leading-6 text-slate-100">
+                  {activeLiveLines.length === 0 ? (
+                    <p className="text-slate-500">아직 표시할 텍스트가 없습니다.</p>
+                  ) : (
+                    activeLiveLines.map((line, index) => (
+                      <p key={`${activeFile?.id || 'live'}-${index}`} className="border-b border-slate-800/70 pb-2 break-words">{line}</p>
+                    ))
+                  )}
                 </div>
-                <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-4 py-3">
+              </div>
+            </div>
+          </motion.section>
+        )}
+
+        <details className="group rounded-[28px] border border-white/10 bg-white/5 shadow-2xl backdrop-blur-xl">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-4">
+            <div>
+              <p className="text-sm font-semibold text-white">상세 로그</p>
+              <p className="mt-1 text-xs text-slate-400">필요할 때만 펼쳐서 확인하세요.</p>
+            </div>
+            <div className="text-xs text-slate-400 transition-transform group-open:rotate-180">▾</div>
+          </summary>
+          <div className="border-t border-white/10">
+            <div className="flex items-center justify-between gap-3 px-6 py-4">
+              <p className="text-sm text-slate-300">로그와 타임라인을 한곳에 모았습니다.</p>
+              <div className="flex items-center gap-2">
+                <button onClick={handleSaveLogs} disabled={isSavingLogs || logs.length === 0} className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300 hover:bg-white/10 disabled:opacity-40">
+                  <Save className="w-3.5 h-3.5" /> {isSavingLogs ? '저장 중...' : '로그 저장'}
+                </button>
+                <button onClick={() => setLogs([])} className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300 hover:bg-white/10">비우기</button>
+              </div>
+            </div>
+            <div className="grid gap-0 border-t border-white/10 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className="border-b border-white/10 lg:border-b-0 lg:border-r lg:border-white/10">
+                <div className="flex flex-wrap items-center gap-2 px-6 py-4">
                   {(['all', 'info', 'warn', 'error', 'success'] as const).map((level) => (
                     <button
                       key={level}
@@ -775,8 +723,8 @@ export default function Home() {
                     </button>
                   ))}
                 </div>
-                <div ref={logContainerRef} className="h-[320px] overflow-y-auto bg-slate-950/80 px-4 py-3 text-xs leading-6 text-slate-100">
-                  {filteredLogs.length === 0 ? <p className="text-slate-500">로그가 아직 없습니다. 변환을 시작하면 복구, 전사, 저장 기록이 순서대로 쌓입니다.</p> : filteredLogs.map((entry) => (
+                <div ref={logContainerRef} className="max-h-[320px] overflow-y-auto bg-slate-950/80 px-6 py-4 text-xs leading-6 text-slate-100">
+                  {filteredLogs.length === 0 ? <p className="text-slate-500">로그가 아직 없습니다. 추출을 시작하면 준비, 전사, 저장 기록이 쌓입니다.</p> : filteredLogs.map((entry) => (
                     <div key={entry.id} className="border-b border-white/5 py-2 last:border-b-0">
                       <div className="flex items-center gap-2 text-[11px] text-slate-400">
                         <span>{entry.timestamp}</span>
@@ -788,15 +736,14 @@ export default function Home() {
                   ))}
                 </div>
               </div>
-
-              <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/5">
-                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+              <div>
+                <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
                   <div className="text-sm font-semibold text-white">진행 타임라인</div>
-                  <div className="text-xs text-slate-400">현재 단계 체류시간 {formatElapsedSeconds(phaseElapsedSeconds)}</div>
+                  <div className="text-xs text-slate-400">{formatElapsedSeconds(phaseElapsedSeconds)}</div>
                 </div>
-                <div className="max-h-[240px] overflow-y-auto px-4 py-3 space-y-3">
+                <div className="max-h-[320px] overflow-y-auto px-6 py-4 space-y-3">
                   {timelineItems.length === 0 ? (
-                    <p className="text-sm text-slate-400">아직 타임라인이 비어 있습니다. 파일을 추가하면 준비, 복구, 전사 순서로 단계가 누적됩니다.</p>
+                    <p className="text-sm text-slate-400">아직 타임라인이 비어 있습니다.</p>
                   ) : (
                     timelineItems.map((item) => (
                       <div key={item.id} className="flex gap-3">
@@ -813,11 +760,11 @@ export default function Home() {
                   )}
                 </div>
               </div>
-
-              {!isDesktop && <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">이 화면은 Electron 데스크톱 앱에서 사용할 때 파일 선택/변환 기능이 활성화됩니다.</div>}
             </div>
-          </aside>
-        </div>
+          </div>
+        </details>
+
+        {!isDesktop && <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">이 화면은 Electron 데스크톱 앱에서 사용할 때 파일 선택/변환 기능이 활성화됩니다.</div>}
       </main>
     </div>
   );
