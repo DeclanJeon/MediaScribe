@@ -76,7 +76,7 @@ Desktop (Electron)
   ├─ IPC 브리지 (electron/main.cjs, preload)
   ├─ Whisper 오케스트레이션 (lib/*.cjs)
   │    - 프로세스/로그/진척률 파싱
-  └─ faster-whisper 런타임 (외부 WhisperTranscriber 번들)
+  └─ faster-whisper 런타임 (번들된 WhisperTranscriber + 첫 실행 자동 부트스트랩)
          └─ 결과 TXT / SRT 생성
 ```
 
@@ -191,6 +191,7 @@ MediaScribe/
 ## 🛠️ 현재 한계와 향후 계획
 
 - 현재 번들링은 `WhisperTranscriber`의 Windows 지향 스크립트(`.bat/.ps1`, `venv/Scripts/python.exe`)에 맞춰져 있습니다.
+- 유저 PC에 Python이 없거나 `faster-whisper`가 빠진 경우, 앱이 첫 실행/복구 과정에서 `WhisperTranscriber`를 사용자 데이터 폴더로 복사한 뒤 Python 런타임과 의존성을 자동 설치합니다.
 - macOS/Linux는 멀티 OS 빌드는 가능하지만, **동일한 런타임 성능/호환성**을 위한 플랫폼별 백엔드 정비가 남아 있습니다.
 
 ---

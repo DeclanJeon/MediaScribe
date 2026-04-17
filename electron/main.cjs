@@ -7,14 +7,47 @@ const { buildTranscriptionCommands, classifyMediaFile, normalizeOutputFormats } 
 const { createLogEntry } = require('../lib/progress-utils.cjs');
 const { buildLogFilePath, inspectEnginePaths, shouldRetryTranscriptionError } = require('../lib/system-utils.cjs');
 const { parseTaggedOutputLine } = require('../lib/tagged-output.cjs');
+const { buildPipUpgradeArgs, buildPythonImportCheckArgs, buildPythonInstallerArgs, buildVenvArgs, describeBootstrapPaths, getBundledEngineRoot, getPythonExePath, getPythonRuntimeExePath, getWritableEngineRoot } = require('../lib/runtime-bootstrap.cjs');
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
 
 function getEngineRoot() {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'WhisperTranscriber')
-    : path.resolve(app.getAppPath(), '..', 'WhisperTranscriber');
+  const writableRoot = getWritableEngineRoot(app.getPath('userData'));
+  const writableRunner = path.join(writableRoot, 'run_transcribe.ps1');
+  if (fs.existsSync(writableRunner)) {
+    return writableRoot;
+  }
+  return getBundledEngineRoot({
+    appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath,
+    isPackaged: app.isPackaged,
+  });
+}
+
+function ensureEngineWorkspace() {
+  if (!app.isPackaged) {
+    return getEngineRoot();
+  }
+
+  const bundledRoot = getBundledEngineRoot({
+    appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath,
+    isPackaged: app.isPackaged,
+  });
+  const writableRoot = getWritableEngineRoot(app.getPath('userData'));
+  const writableRunner = path.join(writableRoot, 'run_transcribe.ps1');
+
+  if (fs.existsSync(writableRunner)) {
+    return writableRoot;
+  }
+  if (!fs.existsSync(bundledRoot)) {
+    throw new Error(`WhisperTranscriber bundle not found: ${bundledRoot}`);
+  }
+
+  fs.mkdirSync(path.dirname(writableRoot), { recursive: true });
+  fs.cpSync(bundledRoot, writableRoot, { recursive: true });
+  return writableRoot;
 }
 
 function getInstallerPath(engineRoot = getEngineRoot()) {
@@ -22,11 +55,11 @@ function getInstallerPath(engineRoot = getEngineRoot()) {
 }
 
 function isFasterWhisperInstalled(engineRoot) {
-  const pythonExe = path.join(engineRoot, 'venv', 'Scripts', 'python.exe');
+  const pythonExe = getPythonExePath(engineRoot);
   if (!fs.existsSync(pythonExe)) {
     return false;
   }
-  const result = spawnSync(pythonExe, ['-c', 'import faster_whisper'], {
+  const result = spawnSync(pythonExe, buildPythonImportCheckArgs(), {
     windowsHide: true,
     encoding: 'utf8',
   });
@@ -37,11 +70,14 @@ function getEngineStatus() {
   const engineRoot = getEngineRoot();
   const runnerScript = path.join(engineRoot, 'run_transcribe.ps1');
   const installerScript = getInstallerPath(engineRoot);
+  const pythonExe = getPythonExePath(engineRoot);
   return inspectEnginePaths({
     engineRoot,
     runnerExists: fs.existsSync(runnerScript),
     installerExists: fs.existsSync(installerScript),
     moduleInstalled: isFasterWhisperInstalled(engineRoot),
+    pythonExists: fs.existsSync(pythonExe),
+    bootstrapAvailable: true,
   });
 }
 
@@ -93,11 +129,106 @@ async function createWindow() {
 }
 
 function ensureEngineInstalled() {
+  return ensureEngineWorkspace();
+}
+
+async function downloadFile(url, destination) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download ${url}: HTTP ${response.status}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  fs.writeFileSync(destination, buffer);
+  return destination;
+}
+
+async function runShellCommand(executable, args, fileName = 'bootstrap') {
+  return runCommand({ executable, args }, {
+    name: fileName,
+    path: executable,
+  });
+}
+
+async function bootstrapEngineRuntime(engineRoot) {
+  const bootstrapPaths = describeBootstrapPaths(engineRoot);
+  const venvPython = getPythonExePath(engineRoot);
+  const runtimePython = getPythonRuntimeExePath(engineRoot);
+  const runtimePythonExists = fs.existsSync(runtimePython);
+  const venvPythonExists = fs.existsSync(venvPython);
+  const moduleInstalled = venvPythonExists && isFasterWhisperInstalled(engineRoot);
+
+  if (runtimePythonExists && moduleInstalled) {
+    return getEngineStatus();
+  }
+
+  sendProgress({
+    kind: 'status',
+    filePath: '',
+    fileName: '',
+    status: 'processing',
+    progress: 5,
+    phase: runtimePythonExists ? 'installing_dependency' : 'installing_runtime',
+  });
+
+  if (!runtimePythonExists) {
+    const installerUrl = bootstrapPaths.installerUrl;
+    const installerPath = path.join(os.tmpdir(), `MediaScribe-python-${Date.now()}.exe`);
+    sendLog('warn', '', `Python 런타임이 없어 자동 설치를 시작합니다. ${installerUrl}`);
+    await downloadFile(installerUrl, installerPath);
+    await runShellCommand(installerPath, buildPythonInstallerArgs(engineRoot), 'python-installer');
+    try {
+      fs.unlinkSync(installerPath);
+    } catch {
+      // ignore cleanup failures
+    }
+  }
+
+  if (!fs.existsSync(runtimePython)) {
+    throw new Error(`Python runtime installation failed: ${runtimePython}`);
+  }
+
+  if (!venvPythonExists) {
+    await runShellCommand(runtimePython, buildVenvArgs(engineRoot), 'python-venv');
+  }
+
+  if (!fs.existsSync(venvPython)) {
+    throw new Error(`Virtual environment creation failed: ${venvPython}`);
+  }
+
+  sendProgress({
+    kind: 'status',
+    filePath: '',
+    fileName: '',
+    status: 'processing',
+    progress: 35,
+    phase: 'installing_dependency',
+  });
+
+  await runShellCommand(venvPython, buildPipUpgradeArgs(['pip', 'setuptools', 'wheel']), 'pip-upgrade');
+  await runShellCommand(venvPython, buildPipUpgradeArgs(['faster-whisper']), 'faster-whisper-install');
+
+  const verify = spawnSync(venvPython, buildPythonImportCheckArgs(), {
+    windowsHide: true,
+    encoding: 'utf8',
+  });
+  if (verify.status !== 0) {
+    throw new Error(verify.stderr || verify.stdout || 'Failed to verify faster-whisper after bootstrap.');
+  }
+
+  return getEngineStatus();
+}
+
+async function ensureRuntimeReady() {
+  const engineRoot = ensureEngineWorkspace();
   const engineStatus = getEngineStatus();
   if (!engineStatus.ready) {
     throw new Error(`Whisper engine not found: ${engineStatus.runnerScript}`);
   }
-  return engineStatus;
+  if (engineStatus.moduleInstalled && engineStatus.pythonExists) {
+    return engineStatus;
+  }
+  sendLog('info', '', 'faster-whisper 런타임이 부족해 자동 설치를 시작합니다.');
+  return bootstrapEngineRuntime(engineRoot);
 }
 
 function readTextIfPresent(filePath) {
@@ -297,20 +428,12 @@ ipcMain.handle('logs:save', async (_event, payload) => {
 });
 
 ipcMain.handle('engine:repair', async () => {
-  const engineStatus = getEngineStatus();
-  if (!engineStatus.installerAvailable) {
-    throw new Error(`Installer not found: ${engineStatus.installerScript}`);
-  }
-
-  spawn('cmd.exe', ['/c', 'start', '', engineStatus.installerScript], {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: false,
-  }).unref();
-
+  const engineStatus = await ensureRuntimeReady();
   return {
     started: true,
-    installerPath: engineStatus.installerScript,
+    engineRoot: engineStatus.engineRoot,
+    pythonExists: engineStatus.pythonExists,
+    moduleInstalled: engineStatus.moduleInstalled,
   };
 });
 
@@ -320,7 +443,7 @@ ipcMain.handle('transcription:start', async (_event, payload) => {
     throw new Error('No files selected.');
   }
 
-  const engineStatus = ensureEngineInstalled();
+  const engineStatus = await ensureRuntimeReady();
   const targetOutputDir = outputDir || getDefaultOutputDir();
   fs.mkdirSync(targetOutputDir, { recursive: true });
 

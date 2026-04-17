@@ -36,6 +36,8 @@ declare global {
     ready: boolean;
     installerAvailable: boolean;
     moduleInstalled: boolean;
+    pythonExists: boolean;
+    bootstrapAvailable: boolean;
   }
 
   interface DesktopProgressEvent {
@@ -57,7 +59,7 @@ declare global {
     error?: string;
     outputFiles?: DesktopOutputFiles;
     logEntry?: DesktopLogEntry;
-    phase?: 'installing_dependency' | 'retrying';
+    phase?: 'installing_dependency' | 'installing_runtime' | 'retrying';
     retryCount?: number;
   }
 
@@ -82,7 +84,7 @@ declare global {
       results: DesktopProgressEvent[];
     }>;
     saveLogs: (payload: { outputDir: string; logs: DesktopLogEntry[] }) => Promise<{ path: string }>;
-    repairEngine: () => Promise<{ started: boolean; installerPath: string }>;
+    repairEngine: () => Promise<{ started: boolean; engineRoot: string; pythonExists: boolean; moduleInstalled: boolean }>;
     openFolder: (targetPath: string) => Promise<{ ok: boolean }>;
     onTranscriptionProgress: (callback: (payload: DesktopProgressEvent) => void) => () => void;
   }

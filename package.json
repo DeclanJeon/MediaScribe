@@ -70,6 +70,7 @@
       "lib/system-utils.cjs",
       "lib/live-progress.cjs",
       "lib/tagged-output.cjs",
+      "lib/runtime-bootstrap.cjs",
       "out/**/*",
       "assets/**/*",
       "package.json"
