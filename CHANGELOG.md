@@ -1,3 +1,9 @@
+## [1.1.1](https://github.com/DeclanJeon/MediaScribe/compare/v1.1.0...v1.1.1) (2026-04-17)
+
+### Bug Fixes
+
+* auto-repair engine on startup ([78d7f2a](https://github.com/DeclanJeon/MediaScribe/commit/78d7f2ab790c049cbe83fee6048dc541766174a3))
+
 ## [1.1.0](https://github.com/DeclanJeon/MediaScribe/compare/v1.0.2...v1.1.0) (2026-04-17)
 
 ### Features
