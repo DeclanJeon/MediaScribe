@@ -37,7 +37,7 @@ test('buildTranscriptionCommands points to the bundled faster-whisper runner', (
 
   assert.equal(commands.length, 2);
   assert.equal(commands[0].executable, 'powershell.exe');
-  assert.ok(commands[0].args.includes('C:/bundle/WhisperTranscriber/run_transcribe.ps1'));
+  assert.ok(commands[0].args.includes('C:/bundle/MediaScribe/WhisperTranscriber/run_transcribe.ps1'));
   assert.ok(commands[0].args.includes('C:/media/a.mp4'));
   assert.ok(commands[1].args.includes('C:/media/b.mp3'));
   assert.ok(commands[0].args.includes('srt,txt'));

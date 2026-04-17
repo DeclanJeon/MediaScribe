@@ -77,7 +77,7 @@
     ],
     "extraResources": [
       {
-        "from": "../WhisperTranscriber",
+        "from": "WhisperTranscriber",
         "to": "WhisperTranscriber",
         "filter": [
           "**/*",

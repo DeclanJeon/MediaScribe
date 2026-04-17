@@ -24,6 +24,7 @@ test('runtime bootstrap helpers build Windows engine paths predictably', () => {
   assert.equal(getVenvRoot(engineRoot), 'C:\\Users\\test\\AppData\\Roaming\\MediaScribe\\WhisperTranscriber\\venv');
   assert.equal(getPythonExePath(engineRoot), 'C:\\Users\\test\\AppData\\Roaming\\MediaScribe\\WhisperTranscriber\\venv\\Scripts\\python.exe');
   assert.equal(getWritableEngineRoot('C:/Users/test/AppData/Roaming/MediaScribe'), 'C:\\Users\\test\\AppData\\Roaming\\MediaScribe\\WhisperTranscriber');
+  assert.equal(getBundledEngineRoot({ appPath: 'C:/bundle/MediaScribe', resourcesPath: 'C:/bundle/resources', isPackaged: false }), 'C:\\bundle\\MediaScribe\\WhisperTranscriber');
   assert.equal(getBundledEngineRoot({ appPath: 'C:/bundle/MediaScribe', resourcesPath: 'C:/bundle/resources', isPackaged: true }), 'C:\\bundle\\resources\\WhisperTranscriber');
 });
 

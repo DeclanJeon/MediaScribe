@@ -51,7 +51,7 @@ function ensureEngineWorkspace() {
 }
 
 function getInstallerPath(engineRoot = getEngineRoot()) {
-  return path.resolve(engineRoot, '..', 'install_whisper_windows.bat');
+  return path.resolve(engineRoot, 'install_whisper_windows.bat');
 }
 
 function isFasterWhisperInstalled(engineRoot) {
