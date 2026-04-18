@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/DeclanJeon/MediaScribe/compare/v1.3.3...v1.4.0) (2026-04-18)
+
+### Features
+
+* improve desktop ui and updater feedback ([562c47e](https://github.com/DeclanJeon/MediaScribe/commit/562c47ee4b76473bf2aaf0cfbbb78f8ff740318c))
+
 ## [1.3.3](https://github.com/DeclanJeon/MediaScribe/compare/v1.3.2...v1.3.3) (2026-04-18)
 
 ### Bug Fixes
