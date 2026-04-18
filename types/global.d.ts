@@ -63,6 +63,11 @@ declare global {
     retryCount?: number;
   }
 
+  interface DesktopWindowState {
+    isMaximized: boolean;
+    isMinimized: boolean;
+  }
+
   interface MediaScribeDesktopAPI {
     isDesktopApp: boolean;
     getAppState: () => Promise<{
@@ -71,6 +76,7 @@ declare global {
       engineRoot: string;
       engineStatus: DesktopEngineStatus;
     }>;
+    getWindowState: () => Promise<DesktopWindowState>;
     pickFiles: () => Promise<DesktopPickedFile[]>;
     chooseOutputDirectory: (currentPath?: string) => Promise<string>;
     startTranscription: (payload: {
@@ -88,10 +94,11 @@ declare global {
     saveLogs: (payload: { outputDir: string; logs: DesktopLogEntry[] }) => Promise<{ path: string }>;
     repairEngine: () => Promise<{ started: boolean; engineRoot: string; pythonExists: boolean; moduleInstalled: boolean }>;
     purgeInstallation: () => Promise<{ removed: boolean; engineRoot: string; removedTargets: string[] }>;
-    minimizeWindow: () => Promise<{ ok: boolean }>;
-    toggleMaximizeWindow: () => Promise<{ ok: boolean; maximized: boolean }>;
+    minimizeWindow: () => Promise<{ ok: boolean; isMaximized: boolean; isMinimized: boolean }>;
+    toggleMaximizeWindow: () => Promise<{ ok: boolean; maximized: boolean; isMaximized: boolean; isMinimized: boolean }>;
     closeWindow: () => Promise<{ ok: boolean }>;
     openFolder: (targetPath: string) => Promise<{ ok: boolean }>;
+    onWindowStateChange: (callback: (payload: DesktopWindowState) => void) => () => void;
     onTranscriptionProgress: (callback: (payload: DesktopProgressEvent) => void) => () => void;
   }
 

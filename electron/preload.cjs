@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('mediaScribe', {
   isDesktopApp: true,
   getAppState: () => ipcRenderer.invoke('app:get-state'),
+  getWindowState: () => ipcRenderer.invoke('window:get-state'),
   pickFiles: () => ipcRenderer.invoke('dialog:pick-files'),
   chooseOutputDirectory: (currentPath) => ipcRenderer.invoke('dialog:choose-output-directory', currentPath),
   startTranscription: (payload) => ipcRenderer.invoke('transcription:start', payload),
@@ -14,6 +15,11 @@ contextBridge.exposeInMainWorld('mediaScribe', {
   toggleMaximizeWindow: () => ipcRenderer.invoke('window:toggle-maximize'),
   closeWindow: () => ipcRenderer.invoke('window:close'),
   openFolder: (targetPath) => ipcRenderer.invoke('shell:open-folder', targetPath),
+  onWindowStateChange: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('window:state-change', listener);
+    return () => ipcRenderer.removeListener('window:state-change', listener);
+  },
   onTranscriptionProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('transcription:progress', listener);

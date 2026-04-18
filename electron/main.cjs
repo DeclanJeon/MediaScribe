@@ -125,6 +125,20 @@ function sendLog(level, fileName, message, meta) {
   });
 }
 
+function getWindowState() {
+  return {
+    isMaximized: Boolean(mainWindow?.isMaximized()),
+    isMinimized: Boolean(mainWindow?.isMinimized()),
+  };
+}
+
+function broadcastWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  mainWindow.webContents.send('window:state-change', getWindowState());
+}
+
 function isCancellationMessage(message) {
   const text = String(message || '').toLowerCase();
   return text.includes('cancelled by user') || text.includes('stopped by user') || text.includes('사용자가 추출을 중지했습니다');
@@ -190,12 +204,13 @@ function removePathRecursive(targetPath) {
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 860,
-    minWidth: 1180,
-    minHeight: 760,
+    width: 1440,
+    height: 920,
+    minWidth: 1080,
+    minHeight: 720,
     show: false,
     frame: false,
+    titleBarStyle: 'hidden',
     autoHideMenuBar: true,
     title: 'MediaScribe',
     backgroundColor: '#09090b',
@@ -207,6 +222,8 @@ async function createWindow() {
     },
   });
 
+  mainWindow.center();
+
   mainWindow.on('closed', () => {
     if (mainWindow === null) {
       return;
@@ -214,12 +231,16 @@ async function createWindow() {
     mainWindow = null;
   });
 
+  ['maximize', 'unmaximize', 'minimize', 'restore', 'enter-full-screen', 'leave-full-screen'].forEach((eventName) => {
+    mainWindow.on(eventName, broadcastWindowState);
+  });
+
   mainWindow.once('ready-to-show', () => {
     if (!mainWindow) {
       return;
     }
-    mainWindow.maximize();
     mainWindow.show();
+    broadcastWindowState();
   });
 
   mainWindow.removeMenu();
@@ -612,12 +633,14 @@ ipcMain.handle('logs:save', async (_event, payload) => {
   return { path: logPath };
 });
 
+ipcMain.handle('window:get-state', async () => getWindowState());
+
 ipcMain.handle('window:minimize', async () => {
   if (!mainWindow) {
     return { ok: false };
   }
   mainWindow.minimize();
-  return { ok: true };
+  return { ok: true, ...getWindowState() };
 });
 
 ipcMain.handle('window:toggle-maximize', async () => {
@@ -629,7 +652,8 @@ ipcMain.handle('window:toggle-maximize', async () => {
   } else {
     mainWindow.maximize();
   }
-  return { ok: true, maximized: mainWindow.isMaximized() };
+  const windowState = getWindowState();
+  return { ok: true, maximized: windowState.isMaximized, ...windowState };
 });
 
 ipcMain.handle('window:close', async () => {
