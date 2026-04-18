@@ -1,6 +1,6 @@
 {
   "name": "mediascribe",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "private": true,
   "description": "Desktop UI for faster-whisper media transcription",
   "author": "Declan Jeon <declanjeon@users.noreply.github.com>",
