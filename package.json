@@ -72,6 +72,7 @@
       "lib/live-progress.cjs",
       "lib/tagged-output.cjs",
       "lib/runtime-bootstrap.cjs",
+      "lib/demo-utils.cjs",
       "out/**/*",
       "assets/**/*",
       "package.json"

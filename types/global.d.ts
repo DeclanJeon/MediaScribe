@@ -68,6 +68,14 @@ declare global {
     isMinimized: boolean;
   }
 
+  interface DesktopDemoSettings {
+    file: DesktopPickedFile | null;
+    autoStart: boolean;
+    captureReadyPath: string;
+    captureDonePath: string;
+    exitAfterCapture: boolean;
+  }
+
   interface MediaScribeDesktopAPI {
     isDesktopApp: boolean;
     getAppState: () => Promise<{
@@ -75,6 +83,7 @@ declare global {
       outputDirectory: string;
       engineRoot: string;
       engineStatus: DesktopEngineStatus;
+      demo: DesktopDemoSettings;
     }>;
     getWindowState: () => Promise<DesktopWindowState>;
     pickFiles: () => Promise<DesktopPickedFile[]>;

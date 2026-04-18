@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { buildTranscriptionCommands, classifyMediaFile, normalizeOutputFormats } = require('../lib/desktop-utils.cjs');
+const { buildDemoPickedFile, resolveDemoSettings } = require('../lib/demo-utils.cjs');
 const { createLogEntry } = require('../lib/progress-utils.cjs');
 const { buildLogFilePath, inspectEnginePaths, shouldRetryTranscriptionError } = require('../lib/system-utils.cjs');
 const { parseTaggedOutputLine } = require('../lib/tagged-output.cjs');
@@ -11,6 +12,7 @@ const { buildPipUpgradeArgs, buildModelPrimeArgs, buildPythonImportCheckArgs, bu
 
 const isDev = !app.isPackaged;
 const offlineModeEnabled = resolveOfflineMode();
+const demoSettings = resolveDemoSettings();
 let mainWindow = null;
 let activeTranscriptionSession = null;
 
@@ -139,6 +141,103 @@ function broadcastWindowState() {
   mainWindow.webContents.send('window:state-change', getWindowState());
 }
 
+async function captureWindowToFile(targetPath) {
+  if (!mainWindow || mainWindow.isDestroyed() || !targetPath) {
+    return { ok: false, path: String(targetPath || '') };
+  }
+
+  const normalizedPath = path.resolve(String(targetPath));
+  fs.mkdirSync(path.dirname(normalizedPath), { recursive: true });
+  const image = await mainWindow.webContents.capturePage();
+  fs.writeFileSync(normalizedPath, image.toPNG());
+  return { ok: true, path: normalizedPath };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function executeInRenderer(script) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return null;
+  }
+  return mainWindow.webContents.executeJavaScript(script, true);
+}
+
+async function waitForRendererCondition(script, { attempts = 120, delay = 500 } = {}) {
+  for (let index = 0; index < attempts; index += 1) {
+    const result = await executeInRenderer(script);
+    if (result) {
+      return result;
+    }
+    await sleep(delay);
+  }
+  return null;
+}
+
+async function runDemoAutomation() {
+  const demoFile = buildDemoPickedFile(demoSettings.filePath);
+  if (!demoFile || (!demoSettings.captureReadyPath && !demoSettings.captureDonePath && !demoSettings.autoStart)) {
+    return;
+  }
+
+  const serializedName = JSON.stringify(demoFile.name);
+  await waitForRendererCondition('Boolean(document?.body?.innerText)', { attempts: 120, delay: 250 });
+
+  let fileQueued = await executeInRenderer(`document.body.innerText.includes(${serializedName})`);
+  if (!fileQueued) {
+    await executeInRenderer(`(() => {
+      const target = [...document.querySelectorAll('button')].find((button) => button.innerText.includes('파일 업로드') && !button.disabled);
+      if (!target) return false;
+      target.click();
+      return true;
+    })()`);
+    fileQueued = await waitForRendererCondition(`document.body.innerText.includes(${serializedName})`, { attempts: 120, delay: 500 });
+  }
+
+  if (!fileQueued) {
+    throw new Error(`Demo file was not queued: ${demoFile.name}`);
+  }
+
+  if (demoSettings.captureReadyPath) {
+    await sleep(700);
+    await captureWindowToFile(demoSettings.captureReadyPath);
+    if (!demoSettings.autoStart && demoSettings.exitAfterCapture) {
+      setTimeout(() => app.quit(), 250);
+      return;
+    }
+  }
+
+  if (!demoSettings.autoStart) {
+    return;
+  }
+
+  await waitForRendererCondition(`(() => {
+    const target = [...document.querySelectorAll('button')].find((button) => button.innerText.includes('추출 시작') && !button.disabled);
+    if (!target) return false;
+    target.click();
+    return true;
+  })()`, { attempts: 240, delay: 500 });
+
+  const extractionFinished = await waitForRendererCondition(`(() => {
+    const text = document.body.innerText;
+    return text.includes('TXT 위치 열기') || text.includes('SRT 위치 열기') || text.includes('텍스트 추출이 완료되었습니다.');
+  })()`, { attempts: 1800, delay: 1000 });
+
+  if (!extractionFinished) {
+    throw new Error(`Demo transcription did not finish in time: ${demoFile.name}`);
+  }
+
+  if (demoSettings.captureDonePath) {
+    await sleep(700);
+    await captureWindowToFile(demoSettings.captureDonePath);
+  }
+
+  if (demoSettings.exitAfterCapture) {
+    setTimeout(() => app.quit(), 250);
+  }
+}
+
 function isCancellationMessage(message) {
   const text = String(message || '').toLowerCase();
   return text.includes('cancelled by user') || text.includes('stopped by user') || text.includes('사용자가 추출을 중지했습니다');
@@ -247,6 +346,12 @@ async function createWindow() {
   mainWindow.setMenuBarVisibility(false);
 
   await mainWindow.loadURL(getUiEntry());
+
+  setTimeout(() => {
+    runDemoAutomation().catch((error) => {
+      sendLog('error', '', error instanceof Error ? error.message : 'README demo automation failed.');
+    });
+  }, 1200);
 }
 
 
@@ -568,10 +673,22 @@ ipcMain.handle('app:get-state', async () => {
     outputDirectory: getDefaultOutputDir(),
     engineRoot: getEngineRoot(),
     engineStatus: getEngineStatus(),
+    demo: {
+      file: buildDemoPickedFile(demoSettings.filePath),
+      autoStart: demoSettings.autoStart,
+      captureReadyPath: demoSettings.captureReadyPath,
+      captureDonePath: demoSettings.captureDonePath,
+      exitAfterCapture: demoSettings.exitAfterCapture,
+    },
   };
 });
 
 ipcMain.handle('dialog:pick-files', async () => {
+  const demoFile = buildDemoPickedFile(demoSettings.filePath);
+  if (demoFile) {
+    return [demoFile];
+  }
+
   const result = await dialog.showOpenDialog({
     properties: ['openFile', 'multiSelections'],
     filters: [
@@ -634,6 +751,14 @@ ipcMain.handle('logs:save', async (_event, payload) => {
 });
 
 ipcMain.handle('window:get-state', async () => getWindowState());
+
+ipcMain.handle('window:capture', async (_event, payload) => {
+  const result = await captureWindowToFile(payload?.path);
+  if (payload?.closeAfter && result.ok) {
+    setTimeout(() => app.quit(), 250);
+  }
+  return result;
+});
 
 ipcMain.handle('window:minimize', async () => {
   if (!mainWindow) {
