@@ -39,14 +39,6 @@
 
 ---
 
-## ✨ 핵심 데모
-
-<p align="center">
-  <img src="./desktop_showcase.gif" width="92%" alt="MediaScribe showcase GIF"/>
-</p>
-
-> 업로드 후 기다리는 장면은 줄이고, `추출 시작`에서 완료 화면으로 바로 이어지도록 압축한 쇼케이스 GIF입니다.
-
 ## ✨ 핵심 스크린샷
 
 <p align="center">
