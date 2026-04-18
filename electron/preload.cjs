@@ -20,6 +20,11 @@ contextBridge.exposeInMainWorld('mediaScribe', {
     ipcRenderer.on('window:state-change', listener);
     return () => ipcRenderer.removeListener('window:state-change', listener);
   },
+  onUpdateStateChange: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('update:state-change', listener);
+    return () => ipcRenderer.removeListener('update:state-change', listener);
+  },
   onTranscriptionProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('transcription:progress', listener);

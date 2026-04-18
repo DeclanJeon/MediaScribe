@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve('./package.json'), 'utf8'));
 
-test('electron-builder bundles demo automation helper modules used by main process', () => {
+test('electron-builder bundles desktop helper modules used by main process', () => {
   assert.ok(packageJson.build.files.includes('lib/demo-utils.cjs'));
+  assert.ok(packageJson.build.files.includes('lib/update-utils.cjs'));
 });

@@ -25,6 +25,7 @@ test('electron preload exposes window state APIs for responsive titlebar control
   assert.match(preloadSource, /getWindowState:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('window:get-state'\)/);
   assert.match(preloadSource, /onWindowStateChange:\s*\(callback\)\s*=>\s*\{/);
   assert.match(preloadSource, /ipcRenderer\.on\('window:state-change', listener\)/);
+  assert.match(preloadSource, /onUpdateStateChange:\s*\(callback\)\s*=>\s*\{/);
 });
 
 test('global desktop API typing includes window state subscription', () => {
@@ -33,11 +34,13 @@ test('global desktop API typing includes window state subscription', () => {
   assert.match(typeSource, /isMinimized:\s*boolean/);
   assert.match(typeSource, /getWindowState:\s*\(\)\s*=>\s*Promise<DesktopWindowState>/);
   assert.match(typeSource, /onWindowStateChange:\s*\(callback:\s*\(payload:\s*DesktopWindowState\)\s*=>\s*void\)\s*=>\s*\(\)\s*=>\s*void/);
+  assert.match(typeSource, /interface DesktopUpdateState/);
 });
 
 test('renderer toggles the maximize button icon based on live window state and keeps a single primary upload CTA', () => {
   assert.match(pageSource, /const \[windowState, setWindowState\] = useState<DesktopWindowState>/);
   assert.match(pageSource, /windowState\.isMaximized \? <Copy className=\"h-4 w-4\" \/> : <Square className=\"h-4 w-4\" \/>/);
+  assert.match(pageSource, /const \[updateState, setUpdateState\] = useState<DesktopUpdateState \| null>/);
 
   const uploadLabelMatches = [...pageSource.matchAll(/'파일 업로드'/g)];
   assert.equal(uploadLabelMatches.length, 1);

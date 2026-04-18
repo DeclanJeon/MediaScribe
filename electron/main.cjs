@@ -5,6 +5,7 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { buildTranscriptionCommands, classifyMediaFile, normalizeOutputFormats } = require('../lib/desktop-utils.cjs');
 const { buildDemoPickedFile, resolveDemoSettings } = require('../lib/demo-utils.cjs');
+const { buildUpdateDownloadPath, compareVersions, getReleaseApiUrl, isPortableEnvironment, selectReleaseAsset } = require('../lib/update-utils.cjs');
 const { createLogEntry } = require('../lib/progress-utils.cjs');
 const { buildLogFilePath, inspectEnginePaths, shouldRetryTranscriptionError } = require('../lib/system-utils.cjs');
 const { parseTaggedOutputLine } = require('../lib/tagged-output.cjs');
@@ -15,6 +16,15 @@ const offlineModeEnabled = resolveOfflineMode();
 const demoSettings = resolveDemoSettings();
 let mainWindow = null;
 let activeTranscriptionSession = null;
+let updateState = {
+  stage: isDev ? 'unsupported' : 'idle',
+  currentVersion: app.getVersion(),
+  latestVersion: '',
+  assetName: '',
+  message: isDev ? '개발 환경에서는 자동 업데이트를 건너뜁니다.' : '최신 버전을 확인할 준비가 되었습니다.',
+  checkedAt: '',
+  error: '',
+};
 
 function getOfflinePaths(engineRoot) {
   return {
@@ -139,6 +149,28 @@ function broadcastWindowState() {
     return;
   }
   mainWindow.webContents.send('window:state-change', getWindowState());
+}
+
+function getUpdateState() {
+  return { ...updateState };
+}
+
+function broadcastUpdateState() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  mainWindow.webContents.send('update:state-change', getUpdateState());
+}
+
+function setUpdateState(nextState) {
+  updateState = {
+    ...updateState,
+    ...nextState,
+    currentVersion: nextState?.currentVersion || updateState.currentVersion || app.getVersion(),
+    checkedAt: new Date().toISOString(),
+  };
+  broadcastUpdateState();
+  return getUpdateState();
 }
 
 async function captureWindowToFile(targetPath) {
@@ -348,10 +380,16 @@ async function createWindow() {
   await mainWindow.loadURL(getUiEntry());
 
   setTimeout(() => {
+    checkForAppUpdates().catch((error) => {
+      sendLog('warn', '', error instanceof Error ? error.message : '자동 업데이트 확인에 실패했습니다.');
+    });
+  }, 1500);
+
+  setTimeout(() => {
     runDemoAutomation().catch((error) => {
       sendLog('error', '', error instanceof Error ? error.message : 'README demo automation failed.');
     });
-  }, 1200);
+  }, 2500);
 }
 
 
@@ -363,6 +401,248 @@ async function downloadFile(url, destination) {
   const buffer = Buffer.from(await response.arrayBuffer());
   fs.writeFileSync(destination, buffer);
   return destination;
+}
+
+function getUpdateDownloadDir() {
+  return path.join(app.getPath('userData'), 'updates');
+}
+
+async function fetchLatestReleaseMetadata() {
+  const response = await fetch(getReleaseApiUrl(), {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'MediaScribe-Updater',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch latest release metadata: HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function downloadUpdateAsset(release, asset) {
+  const targetPath = buildUpdateDownloadPath({
+    baseDir: getUpdateDownloadDir(),
+    version: release.tag_name,
+    assetName: asset.name,
+  });
+
+  if (fs.existsSync(targetPath)) {
+    const existingSize = fs.statSync(targetPath).size;
+    if (!asset.size || existingSize === asset.size) {
+      return targetPath;
+    }
+    fs.rmSync(targetPath, { force: true });
+  }
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  await downloadFile(asset.browser_download_url, targetPath);
+  return targetPath;
+}
+
+function escapePowerShellLiteral(value) {
+  return String(value || '').replace(/'/g, "''");
+}
+
+function readAuthenticodeSignature(filePath) {
+  const command = [
+    "$signature = Get-AuthenticodeSignature -LiteralPath '" + escapePowerShellLiteral(filePath) + "'",
+    '$result = [ordered]@{',
+    '  status = [string]$signature.Status',
+    '  thumbprint = if ($signature.SignerCertificate) { [string]$signature.SignerCertificate.Thumbprint } else { "" }',
+    '  subject = if ($signature.SignerCertificate) { [string]$signature.SignerCertificate.Subject } else { "" }',
+    '}',
+    '$result | ConvertTo-Json -Compress',
+  ].join('; ');
+
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', command], {
+    windowsHide: true,
+    encoding: 'utf8',
+  });
+
+  if (result.status !== 0) {
+    throw new Error(result.stderr || result.stdout || `Failed to inspect Authenticode signature: ${filePath}`);
+  }
+
+  return JSON.parse(String(result.stdout || '{}').trim() || '{}');
+}
+
+function validateDownloadedUpdate(downloadedPath, asset) {
+  if (asset.size && fs.statSync(downloadedPath).size !== asset.size) {
+    throw new Error(`Downloaded update size mismatch for ${asset.name}`);
+  }
+
+  if (process.platform !== 'win32' || !/\.(exe|msi)$/i.test(String(asset.name || ''))) {
+    return;
+  }
+
+  const currentSignature = readAuthenticodeSignature(process.execPath);
+  const downloadedSignature = readAuthenticodeSignature(downloadedPath);
+  if (currentSignature.status !== 'Valid' || downloadedSignature.status !== 'Valid') {
+    throw new Error(`Downloaded update signature is not valid for ${asset.name}`);
+  }
+  if (!currentSignature.thumbprint || currentSignature.thumbprint !== downloadedSignature.thumbprint) {
+    throw new Error(`Downloaded update signer does not match the current app for ${asset.name}`);
+  }
+}
+
+async function promptForUpdate(release, asset) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: '업데이트 알림',
+    message: `새 버전 ${release.tag_name}이 준비되었습니다.`,
+    detail: `${asset.name}을(를) GitHub 릴리즈에서 내려받아 지금 업데이트할까요?`,
+    buttons: ['지금 업데이트', '나중에'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  });
+
+  return result.response === 0;
+}
+
+async function applyDownloadedUpdate(downloadedPath) {
+  const scriptPath = path.join(os.tmpdir(), `mediascribe-update-${Date.now()}.cmd`);
+  const lines = isPortableEnvironment()
+    ? [
+        '@echo off',
+        'setlocal',
+        'ping 127.0.0.1 -n 5 >nul',
+        `copy /Y "${downloadedPath}" "${process.env.PORTABLE_EXECUTABLE_FILE || process.execPath}" >nul`,
+        `start "" "${process.env.PORTABLE_EXECUTABLE_FILE || process.execPath}"`,
+        'del "%~f0"',
+      ]
+    : [
+        '@echo off',
+        'setlocal',
+        'ping 127.0.0.1 -n 5 >nul',
+        `start "" "${downloadedPath}" /S`,
+        'del "%~f0"',
+      ];
+
+  fs.writeFileSync(scriptPath, lines.join('\r\n'), 'utf8');
+  const child = spawn('cmd.exe', ['/c', scriptPath], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+  setTimeout(() => app.quit(), 250);
+  return { scheduled: true, path: downloadedPath };
+}
+
+async function checkForAppUpdates() {
+  const currentVersion = app.getVersion();
+
+  if (isDev || !app.isPackaged) {
+    return setUpdateState({
+      stage: 'unsupported',
+      currentVersion,
+      latestVersion: '',
+      assetName: '',
+      message: '개발 환경에서는 자동 업데이트를 건너뜁니다.',
+      error: '',
+    });
+  }
+
+  if (process.platform !== 'win32') {
+    return setUpdateState({
+      stage: 'unsupported',
+      currentVersion,
+      latestVersion: '',
+      assetName: '',
+      message: '현재 자동 업데이트는 Windows 패키지 앱에서만 동작합니다.',
+      error: '',
+    });
+  }
+
+  setUpdateState({
+    stage: 'checking',
+    currentVersion,
+    latestVersion: '',
+    assetName: '',
+    message: '최신 버전을 확인하고 있습니다.',
+    error: '',
+  });
+
+  try {
+    const release = await fetchLatestReleaseMetadata();
+    if (compareVersions(release.tag_name, currentVersion) <= 0) {
+      return setUpdateState({
+        stage: 'latest',
+        currentVersion,
+        latestVersion: release.tag_name,
+        assetName: '',
+        message: `현재 ${currentVersion} 버전이 최신입니다.`,
+        error: '',
+      });
+    }
+
+    const asset = selectReleaseAsset(release, { platform: process.platform, env: process.env });
+    if (!asset?.browser_download_url) {
+      throw new Error(`No compatible update asset found for ${process.platform}`);
+    }
+
+    const availableState = setUpdateState({
+      stage: 'available',
+      currentVersion,
+      latestVersion: release.tag_name,
+      assetName: asset.name,
+      message: `새 버전 ${release.tag_name}이 준비되었습니다. 승인하면 자동으로 내려받습니다.`,
+      error: '',
+    });
+
+    const approved = await promptForUpdate(release, asset);
+    if (!approved) {
+      sendLog('info', '', `새 버전 ${release.tag_name} 업데이트를 나중에 적용합니다.`);
+      return availableState;
+    }
+
+    sendLog('info', '', `새 버전 ${release.tag_name}을(를) 감지했습니다. 업데이트를 다운로드합니다.`);
+    setUpdateState({
+      stage: 'downloading',
+      currentVersion,
+      latestVersion: release.tag_name,
+      assetName: asset.name,
+      message: `${asset.name} 다운로드 중입니다.`,
+      error: '',
+    });
+    const downloadedPath = await downloadUpdateAsset(release, asset);
+    validateDownloadedUpdate(downloadedPath, asset);
+    sendLog('success', '', `업데이트 다운로드 완료: ${asset.name}`);
+    setUpdateState({
+      stage: 'downloaded',
+      currentVersion,
+      latestVersion: release.tag_name,
+      assetName: asset.name,
+      message: `${asset.name} 다운로드를 완료했습니다. 업데이트를 적용합니다.`,
+      error: '',
+    });
+    setUpdateState({
+      stage: 'applying',
+      currentVersion,
+      latestVersion: release.tag_name,
+      assetName: asset.name,
+      message: '앱을 다시 시작해 업데이트를 적용하고 있습니다.',
+      error: '',
+    });
+    return applyDownloadedUpdate(downloadedPath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '자동 업데이트 확인에 실패했습니다.';
+    setUpdateState({
+      stage: 'error',
+      currentVersion,
+      message,
+      error: message,
+    });
+    throw error;
+  }
 }
 
 async function runShellCommand(executable, args, fileName = 'bootstrap', session = null) {
@@ -673,6 +953,7 @@ ipcMain.handle('app:get-state', async () => {
     outputDirectory: getDefaultOutputDir(),
     engineRoot: getEngineRoot(),
     engineStatus: getEngineStatus(),
+    updateState: getUpdateState(),
     demo: {
       file: buildDemoPickedFile(demoSettings.filePath),
       autoStart: demoSettings.autoStart,

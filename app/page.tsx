@@ -122,6 +122,7 @@ export default function Home() {
   const [outputFormats, setOutputFormats] = useState<string[]>(['srt', 'txt']);
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const [engineStatus, setEngineStatus] = useState<DesktopEngineStatus | null>(null);
+  const [updateState, setUpdateState] = useState<DesktopUpdateState | null>(null);
   const [logFilter, setLogFilter] = useState<LogFilter>('all');
   const [phaseStartedAt, setPhaseStartedAt] = useState<number | null>(null);
   const [phaseElapsedSeconds, setPhaseElapsedSeconds] = useState(0);
@@ -137,10 +138,14 @@ export default function Home() {
     const unsubscribeWindowState = mediaScribe.onWindowStateChange((payload) => {
       setWindowState(payload);
     });
+    const unsubscribeUpdateState = mediaScribe.onUpdateStateChange((payload) => {
+      setUpdateState(payload);
+    });
 
     mediaScribe.getAppState().then((state) => {
       setOutputDir(state.outputDirectory);
       setEngineStatus(state.engineStatus);
+      setUpdateState(state.updateState);
 
       const requiresRepair = !state.engineStatus?.ready || !state.engineStatus?.pythonExists || !state.engineStatus?.moduleInstalled;
       if (requiresRepair && !autoRepairStartedRef.current) {
@@ -225,6 +230,7 @@ export default function Home() {
     });
 
     return () => {
+      unsubscribeUpdateState();
       unsubscribeWindowState();
       unsubscribe();
     };
@@ -287,6 +293,35 @@ export default function Home() {
     : offlineReady
       ? '파일을 올리면 바로 추출을 시작합니다.'
       : '엔진을 준비하는 중입니다.';
+  const updateBadgeTone = !updateState || updateState.stage === 'idle'
+    ? 'neutral'
+    : updateState.stage === 'error'
+      ? 'error'
+      : ['checking', 'downloading', 'applying'].includes(updateState.stage)
+        ? 'info'
+        : updateState.stage === 'available' || updateState.stage === 'downloaded'
+          ? 'success'
+          : updateState.stage === 'latest'
+            ? 'success'
+            : 'neutral';
+  const updateBadgeLabel = !updateState || updateState.stage === 'idle'
+    ? '확인 대기'
+    : updateState.stage === 'checking'
+      ? '확인 중'
+      : updateState.stage === 'latest'
+        ? '최신'
+        : updateState.stage === 'available'
+          ? '새 버전 준비됨'
+          : updateState.stage === 'downloading'
+            ? '다운로드 중'
+            : updateState.stage === 'downloaded'
+              ? '다운로드 완료'
+              : updateState.stage === 'applying'
+                ? '적용 중'
+                : updateState.stage === 'error'
+                  ? '확인 실패'
+                  : '수동 확인';
+  const updateBadgeText = updateState?.message || '앱 시작 후 최신 버전을 자동으로 확인합니다.';
   const activeLiveLines = activeFile?.liveTranscript.slice(-8) ?? [];
   const showLivePanel = Boolean(isRepairingEngine || activeFile || isConvertingAll);
   const windowToggleLabel = windowState.isMaximized ? '창 복원' : '창 최대화';
@@ -559,6 +594,10 @@ export default function Home() {
                   {runtimeBadgeTone === 'success' ? <BadgeCheck className="h-4 w-4" /> : runtimeBadgeTone === 'error' ? <AlertTriangle className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
                   런타임 {runtimeBadgeLabel}
                 </span>
+                <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${updateBadgeTone === 'success' ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100' : updateBadgeTone === 'error' ? 'border-rose-400/20 bg-rose-500/10 text-rose-100' : updateBadgeTone === 'info' ? 'border-cyan-400/20 bg-cyan-500/10 text-cyan-100' : 'border-white/10 bg-white/5 text-slate-200'}`}>
+                  {updateBadgeTone === 'success' ? <BadgeCheck className="h-4 w-4" /> : updateBadgeTone === 'error' ? <AlertTriangle className="h-4 w-4" /> : updateBadgeTone === 'info' ? <Loader2 className="h-4 w-4 animate-spin" /> : updateState?.stage === 'unsupported' ? <CloudOff className="h-4 w-4" /> : <BellRing className="h-4 w-4" />}
+                  업데이트 {updateBadgeLabel}
+                </span>
                 <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">파일 {files.length}개</span>
                 <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">출력 {outputFormats.join(', ')}</span>
                 <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">모델 {model}</span>
@@ -566,6 +605,7 @@ export default function Home() {
 
               <p className="text-sm text-slate-400">{primaryActionHint}</p>
               <p className="text-sm text-slate-400">{runtimeBadgeText}</p>
+              <p className="text-sm text-slate-400">{updateBadgeText}</p>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">

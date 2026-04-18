@@ -68,6 +68,16 @@ declare global {
     isMinimized: boolean;
   }
 
+  interface DesktopUpdateState {
+    stage: 'idle' | 'unsupported' | 'checking' | 'latest' | 'available' | 'downloading' | 'downloaded' | 'applying' | 'error';
+    currentVersion: string;
+    latestVersion: string;
+    assetName: string;
+    message: string;
+    checkedAt: string;
+    error?: string;
+  }
+
   interface DesktopDemoSettings {
     file: DesktopPickedFile | null;
     autoStart: boolean;
@@ -83,6 +93,7 @@ declare global {
       outputDirectory: string;
       engineRoot: string;
       engineStatus: DesktopEngineStatus;
+      updateState: DesktopUpdateState;
       demo: DesktopDemoSettings;
     }>;
     getWindowState: () => Promise<DesktopWindowState>;
@@ -108,6 +119,7 @@ declare global {
     closeWindow: () => Promise<{ ok: boolean }>;
     openFolder: (targetPath: string) => Promise<{ ok: boolean }>;
     onWindowStateChange: (callback: (payload: DesktopWindowState) => void) => () => void;
+    onUpdateStateChange: (callback: (payload: DesktopUpdateState) => void) => () => void;
     onTranscriptionProgress: (callback: (payload: DesktopProgressEvent) => void) => () => void;
   }
 

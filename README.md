@@ -63,6 +63,7 @@
 - ✅ **엔진 상태 점검 + 복구 가이드**
 - ✅ **로그 저장 및 실패 진단**
 - ✅ **Windows 전용 실행형 + 설치형** 배포 지원
+- ✅ GitHub Release 기반 **자동 업데이트 확인 + 다운로드 검증**
 - ✅ GitHub Actions 기반 멀티 OS CI/CD + semantic-release
 
 ---
@@ -186,6 +187,14 @@ npm run dist:linux
 - Release published 이벤트 시 OS별로 빌드
 - GitHub Release에 배포 파일 업로드
 - Windows 릴리스에는 `MediaScribe-offline-bundle.zip` 이 함께 올라가며, 이 파일을 미러링해서 air-gapped 환경에 전달할 수 있습니다.
+
+### 앱 내 자동 업데이트
+- 앱 시작 후 GitHub latest release를 확인합니다.
+- Windows 설치형/포터블 환경에 맞는 자산(`MediaScribe-Setup.exe`, `MediaScribe-Portable.exe`)을 자동 선택합니다.
+- 새 버전이 있으면 사용자 확인 후 다운로드합니다.
+- 다운로드한 실행 파일은 GitHub asset size와 Windows AuthentiCode 서명을 검증합니다.
+- 검증이 끝나면 설치형은 설치 프로그램을 실행하고, 포터블은 종료 후 exe를 교체한 뒤 다시 실행합니다.
+- UI 상단에는 `업데이트 확인 중`, `최신`, `다운로드 완료` 같은 상태 배지가 표시됩니다.
 
 ### 커밋 규칙 (Conventional Commits)
 

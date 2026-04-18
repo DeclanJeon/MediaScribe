@@ -73,6 +73,7 @@
       "lib/tagged-output.cjs",
       "lib/runtime-bootstrap.cjs",
       "lib/demo-utils.cjs",
+      "lib/update-utils.cjs",
       "out/**/*",
       "assets/**/*",
       "package.json"
