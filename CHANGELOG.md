@@ -1,3 +1,9 @@
+## [1.3.2](https://github.com/DeclanJeon/MediaScribe/compare/v1.3.1...v1.3.2) (2026-04-18)
+
+### Bug Fixes
+
+* refine desktop UI and window chrome ([41bb8df](https://github.com/DeclanJeon/MediaScribe/commit/41bb8df5a0e78f50b3d9ab98141e7e2648267163))
+
 ## [1.3.1](https://github.com/DeclanJeon/MediaScribe/compare/v1.3.0...v1.3.1) (2026-04-17)
 
 ### Bug Fixes
